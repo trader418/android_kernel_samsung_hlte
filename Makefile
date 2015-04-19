@@ -22,6 +22,9 @@ LC_COLLATE=C
 LC_NUMERIC=C
 export LC_COLLATE LC_NUMERIC
 
+# Avoid interference with shell env settings
+unexport GREP_OPTIONS
+
 # We are using a recursive build, so we need to do a little thinking
 # to get the ordering right.
 #
@@ -329,7 +332,7 @@ include $(srctree)/scripts/Kbuild.include
 # Make variables (CC, etc...)
 
 AS		= $(CROSS_COMPILE)as
-LD		= $(CROSS_COMPILE)ld
+LD		= $(CROSS_COMPILE)ld.bfd
 CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
@@ -572,9 +575,6 @@ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
 else
 KBUILD_CFLAGS	+= -O2
-ifeq ($(ENABLE_GRAPHITE),true)
-KBUILD_CFLAGS	+= -fgraphite -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block
-endif
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
