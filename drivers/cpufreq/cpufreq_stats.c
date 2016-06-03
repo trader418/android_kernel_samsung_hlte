@@ -376,10 +376,8 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 	struct cpufreq_policy *data;
 	unsigned int alloc_size;
 	unsigned int cpu = policy->cpu;
-
 	if (per_cpu(cpufreq_stats_table, cpu))
-		return 0;
-
+		return -EBUSY;
 	stat = kzalloc(sizeof(struct cpufreq_stats), GFP_KERNEL);
 	if ((stat) == NULL)
 		return -ENOMEM;
@@ -739,10 +737,6 @@ static int __init cpufreq_stats_init(void)
 	if (ret)
 		return ret;
 
-	register_hotcpu_notifier(&cpufreq_stat_cpu_notifier);
-	for_each_online_cpu(cpu)
-		cpufreq_update_policy(cpu);
-
 	create_all_freq_table();
 
 	ret = cpufreq_register_notifier(&notifier_trans_block,
@@ -750,11 +744,13 @@ static int __init cpufreq_stats_init(void)
 	if (ret) {
 		cpufreq_unregister_notifier(&notifier_policy_block,
 				CPUFREQ_POLICY_NOTIFIER);
-		unregister_hotcpu_notifier(&cpufreq_stat_cpu_notifier);
-		for_each_online_cpu(cpu)
-			cpufreq_stats_free_table(cpu);
 		free_all_freq_table();
 		return ret;
+	}
+
+	register_hotcpu_notifier(&cpufreq_stat_cpu_notifier);
+	for_each_online_cpu(cpu) {
+		cpufreq_update_policy(cpu);
 	}
 
 	ret = sysfs_create_file(cpufreq_global_kobject,
