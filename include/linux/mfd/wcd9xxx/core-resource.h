@@ -126,7 +126,8 @@ void wcd9xxx_disable_irq_sync(struct wcd9xxx_core_resource *, int);
 int wcd9xxx_reg_read(struct wcd9xxx_core_resource *,
 					 unsigned short);
 #ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-int wcd9xxx_reg_read_safe(struct wcd9xxx_core_resource *, unsigned short);
+int wcd9xxx_reg_read_safe(struct wcd9xxx_core_resource *,
+					unsigned short);
 #endif
 int wcd9xxx_reg_write(struct wcd9xxx_core_resource *,
 					  unsigned short, u8);

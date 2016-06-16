@@ -710,9 +710,8 @@ static int rmnet_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 
 	default:
-		dev_dbg(&dev->dev,
-			"[%s] error: rmnet_ioct called for unsupported cmd[0x%x]\n",
- 			dev->name, cmd);
+		pr_err("[%s] error: rmnet_ioct called for unsupported cmd[%d]",
+			dev->name, cmd);
 		return -EINVAL;
 	}
 
@@ -732,6 +731,8 @@ static void __init rmnet_setup(struct net_device *dev)
 	dev->needed_headroom = HEADROOM_FOR_BAM + HEADROOM_FOR_QOS ;
 	dev->needed_tailroom = TAILROOM;
 	random_ether_addr(dev->dev_addr);
+
+	dev->watchdog_timeo = 1000; /* 10 seconds? */
 }
 
 static struct net_device *netdevs[RMNET_DEVICE_COUNT];

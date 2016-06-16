@@ -5,7 +5,6 @@
 #include <linux/types.h>
 #include <linux/threads.h>
 #include <linux/list.h>
-#include <linux/radix-tree.h>
 #include <linux/spinlock.h>
 #include <linux/prio_tree.h>
 #include <linux/rbtree.h>
@@ -268,6 +267,9 @@ struct vm_area_struct {
 #ifdef CONFIG_NUMA
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
+#ifdef CONFIG_UKSM
+	struct vma_slot *uksm_vma_slot;
+#endif
 };
 
 struct core_thread {
@@ -302,9 +304,9 @@ struct mm_rss_stat {
 };
 
 struct mm_struct {
-	struct vm_area_struct *mmap;		/* list of VMAs */
+	struct vm_area_struct * mmap;		/* list of VMAs */
 	struct rb_root mm_rb;
-	u32 vmacache_seqnum;                   /* per-thread vmacache */
+	struct vm_area_struct * mmap_cache;	/* last find_vma result */
 #ifdef CONFIG_MMU
 	unsigned long (*get_unmapped_area) (struct file *filp,
 				unsigned long addr, unsigned long len,
@@ -366,7 +368,7 @@ struct mm_struct {
 	struct core_state *core_state; /* coredumping support */
 #ifdef CONFIG_AIO
 	spinlock_t		ioctx_lock;
-	struct radix_tree_root	ioctx_rtree;
+	struct hlist_head	ioctx_list;
 #endif
 #ifdef CONFIG_MM_OWNER
 	/*

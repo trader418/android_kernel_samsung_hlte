@@ -411,7 +411,7 @@ void __init smp_prepare_boot_cpu(void)
 	set_cpu_possible(cpuid, true);
 }
 
-int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *tidle)
+int __cpuinit __cpu_up(unsigned int cpu)
 {
 	extern int __cpuinit smp4m_boot_one_cpu(int);
 	extern int __cpuinit smp4d_boot_one_cpu(int);
@@ -460,7 +460,7 @@ int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *tidle)
 void smp_bogo(struct seq_file *m)
 {
 	int i;
-	
+
 	for_each_online_cpu(i) {
 		seq_printf(m,
 			   "Cpu%dBogo\t: %lu.%02lu\n",

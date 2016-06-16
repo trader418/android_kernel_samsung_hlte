@@ -40,3 +40,4 @@ int symtab_init(struct symtab *s, unsigned int size)
 	s->nprim = 0;
 	return 0;
 }
+

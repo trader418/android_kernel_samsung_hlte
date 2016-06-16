@@ -165,7 +165,7 @@ struct platform_device corgiscoop_device = {
 	.name		= "sharp-scoop",
 	.id		= -1,
 	.dev		= {
- 		.platform_data	= &corgi_scoop_setup,
+		.platform_data	= &corgi_scoop_setup,
 	},
 	.num_resources	= ARRAY_SIZE(corgi_scoop_resources),
 	.resource	= corgi_scoop_resources,
@@ -700,7 +700,7 @@ static void __init corgi_init(void)
 
 	corgi_init_spi();
 
- 	pxa_set_udc_info(&udc_info);
+	pxa_set_udc_info(&udc_info);
 	pxa_set_mci_info(&corgi_mci_platform_data);
 	pxa_set_ficp_info(&corgi_ficp_platform_data);
 	pxa_set_i2c_info(NULL);
@@ -766,4 +766,3 @@ MACHINE_START(HUSKY, "SHARP Husky")
 	.restart	= corgi_restart,
 MACHINE_END
 #endif
-

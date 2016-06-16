@@ -217,22 +217,21 @@ static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 #define mk_pte(page,prot)	pfn_pte(page_to_pfn(page), prot)
 
 #define pte_clear(mm,addr,ptep)	set_pte_ext(ptep, __pte(0), 0)
-
 #ifdef	CONFIG_TIMA_RKP_L2_GROUP
 #define timal2group_pte_clear(mm,addr,ptep,tima_l2group_entry_ptr) cpu_v7_timal2group_set_pte_ext(ptep, __pte(0), 0, tima_l2group_entry_ptr)
 #endif /* CONFIG_TIMA_RKP_L2_GROUP */
 
-#define pte_none(pte)		(!pte_val(pte))
-#define pte_present(pte)	(pte_val(pte) & L_PTE_PRESENT)
-#define pte_write(pte)		(!(pte_val(pte) & L_PTE_RDONLY))
-#define pte_dirty(pte)		(pte_val(pte) & L_PTE_DIRTY)
-#define pte_young(pte)		(pte_val(pte) & L_PTE_YOUNG)
-#define pte_exec(pte)		(!(pte_val(pte) & L_PTE_XN))
-#define pte_special(pte)	(0)
+#define pte_none(pte)          (!pte_val(pte))
+#define pte_present(pte)       (pte_val(pte) & L_PTE_PRESENT)
+#define pte_write(pte)         (!(pte_val(pte) & L_PTE_RDONLY))
+#define pte_dirty(pte)         (pte_val(pte) & L_PTE_DIRTY)
+#define pte_young(pte)         (pte_val(pte) & L_PTE_YOUNG)
+#define pte_exec(pte)          (!(pte_val(pte) & L_PTE_XN))
+#define pte_special(pte)       (0)
 
 #define pte_present_user(pte) \
-	((pte_val(pte) & (L_PTE_PRESENT | L_PTE_USER)) == \
-	 (L_PTE_PRESENT | L_PTE_USER))
+       ((pte_val(pte) & (L_PTE_PRESENT | L_PTE_USER)) == \
+        (L_PTE_PRESENT | L_PTE_USER))
 
 #if __LINUX_ARM_ARCH__ < 6
 static inline void __sync_icache_dcache(pte_t pteval)
@@ -273,16 +272,10 @@ static inline void timal2group_set_pte_at(pte_t *ptep, pte_t pteval,
 	}
 }
 static inline void timal2group_set_pte_commit(void *tima_l2group_entry_ptr,
-					unsigned long tima_l2group_entries_count,
-					void *ptet)
+					unsigned long tima_l2group_entries_count)
 {
-	/*Flush the cache of the ptep (starting from the base to 1 page (4KB))*/
-	//flush_kernel_vmap_range((void*)((unsigned long)ptet&PAGE_MASK), PAGE_SIZE);
 	cpu_v7_timal2group_set_pte_commit(tima_l2group_entry_ptr,
-					 tima_l2group_entries_count, (unsigned long)ptet&PAGE_MASK);
-	//if (!ptet) printk(KERN_ERR"TIMA -> %s %p- %lx\n",__func__,ptet, (unsigned long)ptet&PAGE_MASK);
-	/*Invalidate the cache so nothing got poisoned by speculative fetching.
-	 * Since ptables spin lock is taken here. NO data loss should happen*/
+					 tima_l2group_entries_count);
 }
 #endif /* CONFIG_TIMA_RKP_L2_GROUP */
 

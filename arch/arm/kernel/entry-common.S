@@ -21,10 +21,6 @@
 
 #include "entry-header.S"
 
-#ifdef TIMA_EMUL_ENABLED
-#include <asm/entry-macro-tima.S>
-#endif
-
 	.align	5
 /*
  * This is the fast syscall return path.  We do as little as
@@ -54,15 +50,20 @@ ret_fast_syscall:
 fast_work_pending:
 	str	r0, [sp, #S_R0+S_OFF]!		@ returned r0
 work_pending:
+	tst	r1, #_TIF_NEED_RESCHED
+	bne	work_resched
+	/*
+	 * TIF_SIGPENDING or TIF_NOTIFY_RESUME must've been set if we got here
+	 */
 	mov	r0, sp				@ 'regs'
 	mov	r2, why				@ 'syscall'
-	bl	do_work_pending
-	cmp	r0, #0
-	beq	no_work_pending
-	movlt	scno, #(__NR_restart_syscall - __NR_SYSCALL_BASE)
-	ldmia	sp, {r0 - r6}			@ have to reload r0 - r6
-	b	local_restart			@ ... and off we go
+	tst	r1, #_TIF_SIGPENDING		@ delivering a signal?
+	movne	why, #0				@ prevent further restarts
+	bl	do_notify_resume
+	b	ret_slow_syscall		@ Check work again
 
+work_resched:
+	bl	schedule
 /*
  * "slow" syscall return path.  "why" tells us if this was a real syscall.
  */
@@ -282,14 +283,14 @@ ENDPROC(ftrace_graph_caller_old)
 
 .macro mcount_exit
 	ldmia	sp!, {r0-r3, ip, lr}
-	ret	ip
+	mov	pc, ip
 .endm
 
 ENTRY(__gnu_mcount_nc)
 #ifdef CONFIG_DYNAMIC_FTRACE
 	mov	ip, lr
 	ldmia	sp!, {lr}
-	ret	ip
+	mov	pc, ip
 #else
 	__mcount
 #endif
@@ -319,12 +320,12 @@ return_to_handler:
 	bl	ftrace_return_to_handler
 	mov	lr, r0			@ r0 has real ret addr
 	ldmia	sp!, {r0-r3}
-	ret	lr
+	mov	pc, lr
 #endif
 
 ENTRY(ftrace_stub)
 .Lftrace_stub:
-	ret	lr
+	mov	pc, lr
 ENDPROC(ftrace_stub)
 
 #endif /* CONFIG_FUNCTION_TRACER */
@@ -416,12 +417,7 @@ ENTRY(vector_swi)
 #ifdef CONFIG_ALIGNMENT_TRAP
 	ldr	ip, __cr_alignment
 	ldr	ip, [ip]
-#ifndef TIMA_EMUL_ENABLED
 	mcr	p15, 0, ip, c1, c0		@ update control register
-#else
-	tima_macro_emul_crit_instn ip, 0x3f808221
-
-#endif
 #endif
 	enable_irq
 
@@ -443,7 +439,6 @@ ENTRY(vector_swi)
 	eor	scno, scno, #__NR_SYSCALL_BASE	@ check OS number
 #endif
 
-local_restart:
 	ldr	r10, [tsk, #TI_FLAGS]		@ check for syscall tracing
 	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
 
@@ -486,8 +481,7 @@ __sys_trace:
 	mov	scno, r0			@ syscall number (possibly new)
 	add	r1, sp, #S_R0 + S_OFF		@ pointer to regs
 	cmp	scno, #NR_syscalls		@ check upper syscall limit
-	ldmccia	r1, {r0 - r6}			@ have to reload r0 - r6
-	stmccia	sp, {r4, r5}			@ and update the stack args
+	ldmccia	r1, {r0 - r3}			@ have to reload r0 - r3
 	ldrcc	pc, [tbl, scno, lsl #2]		@ call sys_* routine
 	b	2b
 
@@ -603,7 +597,7 @@ sys_mmap2:
 		streq	r5, [sp, #4]
 		beq	sys_mmap_pgoff
 		mov	r0, #-EINVAL
-		ret	lr
+		mov	pc, lr
 #else
 		str	r5, [sp, #4]
 		b	sys_mmap_pgoff

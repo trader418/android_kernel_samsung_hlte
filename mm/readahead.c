@@ -159,6 +159,9 @@ __do_page_cache_readahead(struct address_space *mapping, struct file *filp,
 	int page_idx;
 	int ret = 0;
 	loff_t isize = i_size_read(inode);
+#ifdef CONFIG_SCFS_LOWER_PAGECACHE_INVALIDATION
+	//struct scfs_sb_info *sbi;
+#endif
 
 	if (isize == 0)
 		goto out;
@@ -183,6 +186,16 @@ __do_page_cache_readahead(struct address_space *mapping, struct file *filp,
 		page = page_cache_alloc_readahead(mapping);
 		if (!page)
 			break;
+
+#ifdef CONFIG_SCFS_LOWER_PAGECACHE_INVALIDATION
+		/*
+		   if (filp->f_flags & O_SCFSLOWER) {
+		   sbi = ;
+		   sbi->scfs_lowerpage_alloc_count++;
+		   }
+		 */
+#endif
+
 		page->index = page_offset;
 
 		page->flags |= (1L << PG_readahead);
@@ -374,10 +387,10 @@ static int try_context_readahead(struct address_space *mapping,
 	size = count_history_pages(mapping, ra, offset, max);
 
 	/*
-	 * not enough history pages:
+	 * no history pages:
 	 * it could be a random read
 	 */
-	if (size <= req_size)
+	if (!size)
 		return 0;
 
 	/*
@@ -388,8 +401,8 @@ static int try_context_readahead(struct address_space *mapping,
 		size *= 2;
 
 	ra->start = offset;
-	ra->size = min(size + req_size, max);
-	ra->async_size = 1;
+	ra->size = get_init_ra_size(size + req_size, max);
+	ra->async_size = ra->size;
 
 	return 1;
 }

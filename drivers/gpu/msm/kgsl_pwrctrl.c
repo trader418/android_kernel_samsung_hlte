@@ -373,18 +373,6 @@ static int kgsl_pwrctrl_min_pwrlevel_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", pwr->min_pwrlevel);
 }
 
-static int kgsl_pwrctrl_active_pwrlevel_show(struct device *dev,
-                                        struct device_attribute *attr,
-                                        char *buf)
-{
-	struct kgsl_device *device = kgsl_device_from_dev(dev);
-	struct kgsl_pwrctrl *pwr;
-	if (device == NULL)
-		return 0;
-	pwr = &device->pwrctrl;
-	return snprintf(buf, PAGE_SIZE, "%d\n", pwr->active_pwrlevel);
-}
-
 static int kgsl_pwrctrl_num_pwrlevels_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -517,6 +505,7 @@ static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
 	unsigned int val = 0;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
+	const long div = 1000/msecs_to_jiffies(1000);
 	int ret;
 
 	if (device == NULL)
@@ -529,8 +518,9 @@ static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
 
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 
-	/* Let the timeout be requested in ms, store in jiffies. */
-	pwr->interval_timeout = msecs_to_jiffies(val);
+	/* Let the timeout be requested in ms, but convert to jiffies. */
+	val /= div;
+	pwr->interval_timeout = val;
 
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 
@@ -542,12 +532,12 @@ static int kgsl_pwrctrl_idle_timer_show(struct device *dev,
 					char *buf)
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	int mul = 1000/msecs_to_jiffies(1000);
 	if (device == NULL)
 		return 0;
-
-	/* Show the idle_timeout in msec */
+	/* Show the idle_timeout converted to msec */
 	return snprintf(buf, PAGE_SIZE, "%d\n",
-		jiffies_to_msecs(device->pwrctrl.interval_timeout));
+		device->pwrctrl.interval_timeout * mul);
 }
 
 static int kgsl_pwrctrl_pmqos_latency_store(struct device *dev,
@@ -809,9 +799,6 @@ DEVICE_ATTR(max_pwrlevel, 0644,
 DEVICE_ATTR(min_pwrlevel, 0644,
 	kgsl_pwrctrl_min_pwrlevel_show,
 	kgsl_pwrctrl_min_pwrlevel_store);
-DEVICE_ATTR(active_pwrlevel, 0444,
-	kgsl_pwrctrl_active_pwrlevel_show,
-	NULL);
 DEVICE_ATTR(thermal_pwrlevel, 0644,
 	kgsl_pwrctrl_thermal_pwrlevel_show,
 	kgsl_pwrctrl_thermal_pwrlevel_store);
@@ -846,7 +833,6 @@ static const struct device_attribute *pwrctrl_attr_list[] = {
 	&dev_attr_gpu_available_frequencies,
 	&dev_attr_max_pwrlevel,
 	&dev_attr_min_pwrlevel,
-	&dev_attr_active_pwrlevel,
 	&dev_attr_thermal_pwrlevel,
 	&dev_attr_num_pwrlevels,
 	&dev_attr_pmqos_latency,
@@ -1145,8 +1131,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 					 pwr->pwrlevels[pwr->active_pwrlevel].
 						bus_freq);
 
-	/* Set the CPU latency to 501usec to allow low latency PC modes */
-	pwr->pm_qos_latency = 501;
+	pwr->pm_qos_latency = pdata->pm_qos_latency;
 
 	pm_runtime_enable(device->parentdev);
 
@@ -1597,12 +1582,9 @@ EXPORT_SYMBOL(kgsl_pwrctrl_disable);
 
 void kgsl_pwrctrl_set_state(struct kgsl_device *device, unsigned int state)
 {
-	struct kgsl_pwrscale *pwrscale = &device->pwrscale;
-
 	trace_kgsl_pwr_set_state(device, state);
 	device->state = state;
 	device->requested_state = KGSL_STATE_NONE;
-	pwrscale->devfreqptr->state = state;
 }
 EXPORT_SYMBOL(kgsl_pwrctrl_set_state);
 

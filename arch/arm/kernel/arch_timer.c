@@ -308,7 +308,6 @@ static inline cycle_t notrace counter_get_cntpct_cp15(void)
 {
 	u32 cvall, cvalh;
 
-	isb();
 	asm volatile("mrrc p15, 0, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
 	return ((cycle_t) cvalh << 32) | cvall;
 }
@@ -330,7 +329,6 @@ static inline cycle_t notrace counter_get_cntvct_cp15(void)
 {
 	u32 cvall, cvalh;
 
-	isb();
 	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
 	return ((cycle_t) cvalh << 32) | cvall;
 }
@@ -494,10 +492,8 @@ static int __init arch_timer_mem_register(void)
 
 	clockevents_config_and_register(clk, arch_timer_rate,
 					0xf, 0x7fffffff);
-
-	err = request_irq(arch_timer_spi, arch_timer_handler_mem, 0,
-		"arch_timer", clk);
-
+	err = request_irq(arch_timer_spi, arch_timer_handler_mem,
+			IRQF_TIMER, "arch_timer", clk);
 	return err;
 }
 

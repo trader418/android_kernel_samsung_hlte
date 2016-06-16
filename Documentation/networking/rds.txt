@@ -351,5 +351,3 @@ The recv path
     copy data into user iovec
     handle CMSGs
     return to application
-
-

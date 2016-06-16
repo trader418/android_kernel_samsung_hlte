@@ -1176,6 +1176,7 @@ static int __dev_open(struct net_device *dev)
 		net_dmaengine_get();
 		dev_set_rx_mode(dev);
 		dev_activate(dev);
+		add_device_randomness(dev->dev_addr, dev->addr_len);
 	}
 
 	return ret;
@@ -3713,8 +3714,9 @@ static int process_backlog(struct napi_struct *napi, int quota)
 #endif
 	napi->weight = weight_p;
 	local_irq_disable();
-	while (1) {
+	while (work < quota) {
 		struct sk_buff *skb;
+		unsigned int qlen;
 
 		while ((skb = __skb_dequeue(&sd->process_queue))) {
 			rcu_read_lock();
@@ -3730,24 +3732,24 @@ static int process_backlog(struct napi_struct *napi, int quota)
 		}
 
 		rps_lock(sd);
-		if (skb_queue_empty(&sd->input_pkt_queue)) {
+		qlen = skb_queue_len(&sd->input_pkt_queue);
+		if (qlen)
+			skb_queue_splice_tail_init(&sd->input_pkt_queue,
+						   &sd->process_queue);
+
+		if (qlen < quota - work) {
 			/*
 			 * Inline a custom version of __napi_complete().
 			 * only current cpu owns and manipulates this napi,
-			 * and NAPI_STATE_SCHED is the only possible flag set
-			 * on backlog.
-			 * We can use a plain write instead of clear_bit(),
+			 * and NAPI_STATE_SCHED is the only possible flag set on backlog.
+			 * we can use a plain write instead of clear_bit(),
 			 * and we dont need an smp_mb() memory barrier.
 			 */
 			list_del(&napi->poll_list);
 			napi->state = 0;
-			rps_unlock(sd);
 
-			break;
+			quota = work + qlen;
 		}
-
-		skb_queue_splice_tail_init(&sd->input_pkt_queue,
-					   &sd->process_queue);
 		rps_unlock(sd);
 	}
 	local_irq_enable();
@@ -4134,6 +4136,15 @@ static void dev_seq_printf_stats(struct seq_file *seq, struct net_device *dev)
 		   stats->tx_compressed);
 }
 
+static void dev_seq_printf_stats_packet(struct seq_file *seq, struct net_device *dev)
+{
+	struct rtnl_link_stats64 temp2;
+	const struct rtnl_link_stats64 *stats2 = dev_get_stats(dev, &temp2);
+
+	seq_printf(seq, "%6s: %llu %llu\n",
+		   dev->name, stats2->rx_bytes, stats2->tx_bytes);
+}
+
 /*
  *	Called from the PROCfs module. This now uses the new arbitrary sized
  *	/proc/net interface to create /proc/net/dev
@@ -4148,6 +4159,13 @@ static int dev_seq_show(struct seq_file *seq, void *v)
 			      "drop fifo colls carrier compressed\n");
 	else
 		dev_seq_printf_stats(seq, v);
+	return 0;
+}
+
+static int dev_seq_show_packet(struct seq_file *seq, void *v)
+{
+	if (v != SEQ_START_TOKEN)
+		dev_seq_printf_stats_packet(seq, v);
 	return 0;
 }
 
@@ -4197,15 +4215,36 @@ static const struct seq_operations dev_seq_ops = {
 	.show  = dev_seq_show,
 };
 
+static const struct seq_operations dev_seq_ops_packet = {
+	.start = dev_seq_start,
+	.next  = dev_seq_next,
+	.stop  = dev_seq_stop,
+	.show  = dev_seq_show_packet,
+};
+
 static int dev_seq_open(struct inode *inode, struct file *file)
 {
 	return seq_open_net(inode, file, &dev_seq_ops,
 			    sizeof(struct seq_net_private));
 }
 
+static int dev_seq_open1(struct inode *inode, struct file *file)
+{
+	return seq_open_net(inode, file, &dev_seq_ops_packet,
+			    sizeof(struct seq_net_private));
+}
+
 static const struct file_operations dev_seq_fops = {
 	.owner	 = THIS_MODULE,
 	.open    = dev_seq_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = seq_release_net,
+};
+
+static const struct file_operations dev_seq1_fops = {
+	.owner	 = THIS_MODULE,
+	.open    = dev_seq_open1,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
 	.release = seq_release_net,
@@ -4341,6 +4380,8 @@ static int __net_init dev_proc_net_init(struct net *net)
 	int rc = -ENOMEM;
 
 	if (!proc_net_fops_create(net, "dev", S_IRUGO, &dev_seq_fops))
+		goto out;
+	if (!proc_net_fops_create(net, "packet_data", S_IRUGO, &dev_seq1_fops))
 		goto out;
 	if (!proc_net_fops_create(net, "softnet_stat", S_IRUGO, &softnet_seq_fops))
 		goto out_dev;
@@ -4805,6 +4846,7 @@ int dev_set_mac_address(struct net_device *dev, struct sockaddr *sa)
 	err = ops->ndo_set_mac_address(dev, sa);
 	if (!err)
 		call_netdevice_notifiers(NETDEV_CHANGEADDR, dev);
+	add_device_randomness(dev->dev_addr, dev->addr_len);
 	return err;
 }
 EXPORT_SYMBOL(dev_set_mac_address);
@@ -5579,6 +5621,7 @@ int register_netdevice(struct net_device *dev)
 	dev_init_scheduler(dev);
 	dev_hold(dev);
 	list_netdevice(dev);
+	add_device_randomness(dev->dev_addr, dev->addr_len);
 
 	/* Notify protocols, that a new device appeared. */
 	ret = call_netdevice_notifiers(NETDEV_REGISTER, dev);
@@ -6249,20 +6292,10 @@ static int dev_cpu_callback(struct notifier_block *nfb,
 		oldsd->output_queue = NULL;
 		oldsd->output_queue_tailp = &oldsd->output_queue;
 	}
-	/* Append NAPI poll list from offline CPU, with one exception :
-	 * process_backlog() must be called by cpu owning percpu backlog.
-	 * We properly handle process_queue & input_pkt_queue later.
-	 */
-	while (!list_empty(&oldsd->poll_list)) {
-		struct napi_struct *napi = list_first_entry(&oldsd->poll_list,
-							struct napi_struct,
-							poll_list);
-
-		list_del_init(&napi->poll_list);
-		if (napi->poll == process_backlog)
-			napi->state = 0;
-		else
-			____napi_schedule(sd, napi);
+	/* Append NAPI poll list from offline CPU. */
+	if (!list_empty(&oldsd->poll_list)) {
+		list_splice_init(&oldsd->poll_list, &sd->poll_list);
+		raise_softirq_irqoff(NET_RX_SOFTIRQ);
 	}
 
 	raise_softirq_irqoff(NET_TX_SOFTIRQ);
@@ -6273,7 +6306,7 @@ static int dev_cpu_callback(struct notifier_block *nfb,
 		netif_rx(skb);
 		input_queue_head_incr(oldsd);
 	}
-	while ((skb = skb_dequeue(&oldsd->input_pkt_queue))) {
+	while ((skb = __skb_dequeue(&oldsd->input_pkt_queue))) {
 		netif_rx(skb);
 		input_queue_head_incr(oldsd);
 	}

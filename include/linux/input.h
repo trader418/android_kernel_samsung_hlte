@@ -159,6 +159,11 @@ struct input_keymap_entry {
 
 #define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
 
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define EVIOCGABS_LIMIT		(0x40)
+#define EVIOCGABS_CHG_LIMIT(nr)	(nr + EVIOCGABS_LIMIT)
+#endif
+
 /*
  * Device properties and quirks
  */
@@ -412,6 +417,7 @@ struct input_keymap_entry {
 #define KEY_F23			193
 #define KEY_F24			194
 
+#define KEY_VOICE_WAKEUP_LPSD	198	/* Samsung Voice Wakeup LPSD - Baby cry */
 #define KEY_VOICE_WAKEUP	199	/* Samsung Voice Wakeup */
 #define KEY_PLAYCD		200
 #define KEY_PAUSECD		201
@@ -475,8 +481,9 @@ struct input_keymap_entry {
 #define KEY_DUMMY_HOME1		249	/* Dummy Touchkey : HOME1*/
 #define KEY_DUMMY_HOME2		250	/* Dummy Touchkey : HOME2*/
 #define KEY_DUMMY_MENU		251	/* Dummy Touchkey : MENU*/
+#define KEY_ACTIVITY_MENU	252	/* Activity menu key*/
 #define KEY_DUMMY_BACK		253	/* Dummy Touchkey : BACK*/
-#define KEY_RECENT	254	/* Key recent */
+#define KEY_RECENT		254	/* Key recent */
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -851,18 +858,26 @@ struct input_keymap_entry {
 #define ABS_MT_TRACKING_ID	0x39	/* Unique ID of initiated contact */
 #define ABS_MT_PRESSURE		0x3a	/* Pressure on contact area */
 #define ABS_MT_DISTANCE		0x3b	/* Contact hover distance */
-#define ABS_MT_ANGLE		0x3c	/* touch angle */
-#define ABS_MT_PALM		0x3d	/* palm touch */
-#define ABS_MT_COMPONENT	0x3e	/* touch component */
-#define ABS_MT_SUMSIZE		0x3f	/* touch sumsize */
+
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define ABS_MT_PALM		0x40	/* palm touch */
+#define ABS_MT_GRIP		0x41	/* grip touch */
+#else
+#define ABS_MT_PALM		0x3e	/* palm touch */
+#define ABS_MT_GRIP		0x3f	/* grip touch */
+#endif
 
 #ifdef __KERNEL__
 /* Implementation details, userspace should not care about these */
 #define ABS_MT_FIRST		ABS_MT_TOUCH_MAJOR
-#define ABS_MT_LAST		ABS_MT_SUMSIZE
+#define ABS_MT_LAST		ABS_MT_GRIP
 #endif
 
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define ABS_MAX			0x4f
+#else
 #define ABS_MAX			0x3f
+#endif
 #define ABS_CNT			(ABS_MAX+1)
 
 /*
@@ -889,7 +904,6 @@ struct input_keymap_entry {
 #define SW_HPHR_OVERCURRENT    0x0f  /* set = over current on right hph */
 #define SW_UNSUPPORT_INSERT	0x10  /* set = unsupported device inserted */
 #define SW_MICROPHONE2_INSERT   0x11  /* set = inserted */
-
 #define SW_FLIP			0x15  /* set = flip cover */
 #define SW_PEN_INSERT		0x13
 #define SW_STROBE_INSERT	0x14
@@ -898,6 +912,7 @@ struct input_keymap_entry {
 #define SW_LEFT_HAND	0x17	/* set = left hand*/
 #define SW_RIGHT_HAND	0x18	/* set = right hand*/
 #define SW_BOTH_HAND	0x19	/* set = both hand*/
+#define SW_W1			0x1A  /* set = w1_slave */
 
 #define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)
@@ -1222,18 +1237,6 @@ struct ff_effect {
 #include <linux/mod_devicetable.h>
 
 /**
- * struct input_value - input value representation
- * @type: type of value (EV_KEY, EV_ABS, etc)
- * @code: the value code
- * @value: the value
- */
-struct input_value {
-	__u16 type;
-	__u16 code;
-	__s32 value;
-};
-
-/**
  * struct input_dev - represents an input device
  * @name: name of the device
  * @phys: physical path to the device in the system hierarchy
@@ -1309,6 +1312,7 @@ struct input_value {
  *	last user closes the device
  * @going_away: marks devices that are in a middle of unregistering and
  *	causes input_open_device*() fail with -ENODEV.
+ * @sync: set to %true when there were no new events since last EV_SYN
  * @dev: driver model's view of this device
  * @h_list: list of input handles associated with the device. When
  *	accessing the list dev->mutex must be held
@@ -1378,14 +1382,12 @@ struct input_dev {
 	bool going_away;
 	bool disabled;
 
+	bool sync;
+
 	struct device dev;
 
 	struct list_head	h_list;
 	struct list_head	node;
-
-	unsigned int num_vals;
-	unsigned int max_vals;
-	struct input_value *vals;
 };
 #define to_input_dev(d) container_of(d, struct input_dev, dev)
 
@@ -1446,9 +1448,6 @@ struct input_handle;
  * @event: event handler. This method is being called by input core with
  *	interrupts disabled and dev->event_lock spinlock held and so
  *	it may not sleep
- * @events: event sequence handler. This method is being called by
- *	input core with interrupts disabled and dev->event_lock
- *	spinlock held and so it may not sleep
  * @filter: similar to @event; separates normal event handlers from
  *	"filters".
  * @match: called after comparing device's id with handler's id_table
@@ -1485,8 +1484,6 @@ struct input_handler {
 	void *private;
 
 	void (*event)(struct input_handle *handle, unsigned int type, unsigned int code, int value);
-	void (*events)(struct input_handle *handle,
-		       const struct input_value *vals, unsigned int count);
 	bool (*filter)(struct input_handle *handle, unsigned int type, unsigned int code, int value);
 	bool (*match)(struct input_handler *handler, struct input_dev *dev);
 	int (*connect)(struct input_handler *handler, struct input_dev *dev, const struct input_device_id *id);

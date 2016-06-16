@@ -120,26 +120,23 @@ int wcd9xxx_reg_read(
 EXPORT_SYMBOL(wcd9xxx_reg_read);
 
 #ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-int __wcd9xxx_reg_read_safe(struct wcd9xxx *wcd9xxx, unsigned short reg)
+int wcd9xxx_reg_read_safe(
+	struct wcd9xxx_core_resource *core_res,
+	unsigned short reg)
 {
-        u8 val;
-        int ret;
+	u8 val;
+	int ret;
 
-        ret = wcd9xxx_read(wcd9xxx, reg, 1, &val, false);
-
-        if (ret < 0)
-                return ret;
-        else
-                return val;
-}
-
-int wcd9xxx_reg_read_safe(struct wcd9xxx_core_resource *core_res, unsigned short reg)
-{
 	struct wcd9xxx *wcd9xxx = (struct wcd9xxx *) core_res->parent;
-	return __wcd9xxx_reg_read_safe(wcd9xxx, reg);
 
+	ret = wcd9xxx_read(wcd9xxx, reg, 1, &val, false);
+
+	if (ret < 0)
+		return ret;
+	else
+		return val;
 }
-EXPORT_SYMBOL(wcd9xxx_reg_read_safe);
+EXPORT_SYMBOL_GPL(wcd9xxx_reg_read_safe);
 #endif
 
 static int wcd9xxx_write(struct wcd9xxx *wcd9xxx, unsigned short reg,
@@ -586,6 +583,7 @@ static const struct intr_data intr_tbl_v2[] = {
 	{WCD9XXX_IRQ_SPEAKER_CLIPPING, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_ATTACK, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_RELEASE, false},
+	{WCD9XXX_IRQ_RESERVED_2, false},
 };
 
 static int wcd9xxx_device_init(struct wcd9xxx *wcd9xxx)
@@ -819,6 +817,22 @@ static int wcd9xxx_init_supplies(struct wcd9xxx *wcd9xxx,
 				"regulator %s err = %d\n", __func__,
 				wcd9xxx->supplies[i].supply, ret);
 			goto err_get;
+		}
+
+		/* Enabling Codec Buck Voltage to avoid voltage swing from 1.8 - 2.1V during sleep */
+		if(strcmp("cdc-vdd-buck",wcd9xxx->supplies[i].supply) == 0)
+		{
+			ret = regulator_enable(wcd9xxx->supplies[i].consumer);
+			if (ret) {
+				pr_err("%s: Setting regulator voltage failed for "
+					"regulator %s err = %d\n", __func__,
+					wcd9xxx->supplies[i].supply, ret);
+				goto err_get;
+			} else {
+				pr_err("%s: Setting regulator voltage success for "
+					"regulator %s err = %d\n", __func__,
+					wcd9xxx->supplies[i].supply, ret);
+			}
 		}
 
 		ret = regulator_set_optimum_mode(wcd9xxx->supplies[i].consumer,
@@ -1083,13 +1097,13 @@ static int __devinit wcd9xxx_i2c_probe(struct i2c_client *client,
 		if (!pdata) {
 			dev_dbg(&client->dev, "no platform data?\n");
 			ret = -EINVAL;
-			goto fail;
+			goto err_codec;
 		}
 		if (i2c_check_functionality(client->adapter,
 					    I2C_FUNC_I2C) == 0) {
 			dev_dbg(&client->dev, "can't talk I2C?\n");
 			ret = -EIO;
-			goto fail;
+			goto err_codec;
 		}
 		dev_set_drvdata(&client->dev, wcd9xxx);
 		wcd9xxx->dev = &client->dev;
@@ -1419,7 +1433,7 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	BUG_ON(static_cnt <= 0 || ond_cnt < 0 || cp_supplies_cnt < 0);
 	if ((static_cnt + ond_cnt + cp_supplies_cnt)
 			> ARRAY_SIZE(pdata->regulator)) {
-		dev_err(dev, "%s: Num of supplies %u > max supported %zu\n",
+		dev_err(dev, "%s: Num of supplies %u > max supported %u\n",
 			__func__, static_cnt, ARRAY_SIZE(pdata->regulator));
 		goto err;
 	}
@@ -1741,7 +1755,6 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 {
 	struct wcd9xxx *wcd9xxx = slim_get_devicedata(sldev);
 
-	dev_info(wcd9xxx->dev, "%s: device down\n", __func__);
 	if (!wcd9xxx) {
 		pr_err("%s: wcd9xxx is NULL\n", __func__);
 		return -EINVAL;

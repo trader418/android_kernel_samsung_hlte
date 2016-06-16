@@ -16,9 +16,6 @@
 #include <asm/hwcap.h>
 #include <asm/pgtable-hwdef.h>
 #include <asm/pgtable.h>
-#ifdef TIMA_EMUL_ENABLED
-#include <asm/entry-macro-tima.S>
-#endif
 
 #include "proc-macros.S"
 
@@ -29,7 +26,7 @@
 #endif
 
 ENTRY(cpu_v7_proc_init)
-	ret	lr
+	mov	pc, lr
 ENDPROC(cpu_v7_proc_init)
 
 ENTRY(cpu_v7_proc_fin)
@@ -37,7 +34,7 @@ ENTRY(cpu_v7_proc_fin)
 	bic	r0, r0, #0x1000			@ ...i............
 	bic	r0, r0, #0x0006			@ .............ca.
 	mcr	p15, 0, r0, c1, c0, 0		@ disable caches
-	ret	lr
+	mov	pc, lr
 ENDPROC(cpu_v7_proc_fin)
 
 /*
@@ -63,7 +60,7 @@ ENTRY(cpu_v7_reset)
 	mcr     p15, 0, ip, c7, c5, 6           @ flush BTC
 	dsb
 	isb
-	bx	r0
+	mov	pc, r0
 ENDPROC(cpu_v7_reset)
 	.popsection
 
@@ -77,19 +74,19 @@ ENDPROC(cpu_v7_reset)
 ENTRY(cpu_v7_do_idle)
 	dsb					@ WFI may enter a low-power mode
 	wfi
-	ret	lr
+	mov	pc, lr
 ENDPROC(cpu_v7_do_idle)
 
 ENTRY(cpu_v7_dcache_clean_area)
-	ALT_SMP(ret	lr)			@ MP extensions imply L1 PTW
-	ALT_UP(W(nop))
+#ifndef TLB_CAN_READ_FROM_L1_CACHE
 	dcache_line_size r2, r3
 1:	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
 	add	r0, r0, r2
 	subs	r1, r1, r2
 	bhi	1b
 	dsb
-	ret	lr
+#endif
+	mov	pc, lr
 ENDPROC(cpu_v7_dcache_clean_area)
 
 	string	cpu_v7_name, "ARMv7 Processor"
@@ -123,34 +120,31 @@ ENTRY(cpu_v7_do_resume)
 	mcr	p15, 0, r4, c13, c0, 0	@ FCSE/PID
 	mcr	p15, 0, r5, c13, c0, 3	@ User r/o thread ID
 	ldmia	r0, {r6 - r11}
-#ifndef TIMA_EMUL_ENABLED
+#ifndef CONFIG_TIMA_RKP_EMUL_CP15_INSTR
 	mcr	p15, 0, r6, c3, c0, 0	@ Domain ID
-#else
-	tima_macro_emul_crit_instn r6, 0x3f806221
-
 #endif
 #ifndef CONFIG_ARM_LPAE
 	ALT_SMP(orr	r1, r1, #TTB_FLAGS_SMP)
 	ALT_UP(orr	r1, r1, #TTB_FLAGS_UP)
 #endif
-#ifndef TIMA_EMUL_ENABLED
+#ifndef	CONFIG_TIMA_RKP_EMUL_CP15_INSTR
 	mcr	p15, 0, r1, c2, c0, 0	@ TTB 0
-#else
-	tima_macro_emul_crit_instn r7, 0x3f803221
-
 #endif
-#ifndef TIMA_EMUL_ENABLED
 	mcr	p15, 0, r7, c2, c0, 1	@ TTB 1
-#else
-	tima_macro_emul_crit_instn r8, 0x3f804221
-
-#endif
-#ifndef TIMA_EMUL_ENABLED
+#ifndef	CONFIG_TIMA_RKP_EMUL_CP15_INSTR
 	mcr	p15, 0, r11, c2, c0, 2	@ TTB control register
-#else
-	tima_macro_emul_crit_instn ip, 0x3f805221
-
 #endif
+
+#ifdef CONFIG_TIMA_RKP_EMUL_CP15_INSTR
+	mov	r4, r0
+	ldr	r0, =0x3f806221
+	smc	#1
+	mov	r0, r4
+	/* Flush TLB */
+	mcr    p15, 0, r0, c8, c3, 0
+	dsb
+#endif
+
 	mrc	p15, 0, r4, c1, c0, 1	@ Read Auxiliary control register
 	teq	r4, r9			@ Is it already set?
 	mcrne	p15, 0, r9, c1, c0, 1	@ No, so write it
@@ -198,7 +192,7 @@ __v7_ca15mp_setup:
 __v7_setup:
 	adr	r12, __v7_setup_stack		@ the local stack
 	stmia	r12, {r0-r5, r7, r9, r11, lr}
-	bl      v7_flush_dcache_louis
+	bl	v7_flush_dcache_all
 	ldmia	r12, {r0-r5, r7, r9, r11, lr}
 
 	mrc	p15, 0, r0, c0, c0, 0		@ read main ID register
@@ -304,6 +298,7 @@ __v7_setup:
 	orr         r0, r0, #0x1 << 21
 	mcr     p15, 3, r0, c15, c0, 2
 #endif
+
 	dsb					@ Complete invalidations
 #ifndef CONFIG_ARM_THUMBEE
 	mrc	p15, 0, r0, c0, c1, 0		@ read ID_PFR0 for ThumbEE
@@ -330,7 +325,7 @@ __v7_setup:
 	bic	r0, r0, r5			@ clear bits them
 	orr	r0, r0, r6			@ set them
  THUMB(	orr	r0, r0, #1 << 30	)	@ Thumb exceptions
-	ret	lr				@ return to head.S:__ret
+	mov	pc, lr				@ return to head.S:__ret
 ENDPROC(__v7_setup)
 
 	.align	2
@@ -401,7 +396,7 @@ __v7_ca9mp_proc_info:
 __v7_ca7mp_proc_info:
 	.long	0x410fc070
 	.long	0xff0ffff0
-	__v7_proc __v7_ca7mp_setup
+	__v7_proc __v7_ca7mp_setup, hwcaps = HWCAP_IDIV
 	.size	__v7_ca7mp_proc_info, . - __v7_ca7mp_proc_info
 
 	/*
@@ -411,7 +406,7 @@ __v7_ca7mp_proc_info:
 __v7_ca15mp_proc_info:
 	.long	0x410fc0f0
 	.long	0xff0ffff0
-	__v7_proc __v7_ca15mp_setup
+	__v7_proc __v7_ca15mp_setup, hwcaps = HWCAP_IDIV
 	.size	__v7_ca15mp_proc_info, . - __v7_ca15mp_proc_info
 
 	/*
@@ -421,11 +416,6 @@ __v7_ca15mp_proc_info:
 __krait_proc_info:
 	.long	0x510f0400		@ Required ID value
 	.long	0xff0ffc00		@ Mask for ID
-	/*
-	 * Some Krait processors don't indicate support for SDIV and UDIV
-	 * instructions in the ARM instruction set, even though they actually
-	 * do support them.
-	 */
 	__v7_proc __v7_setup, hwcaps = HWCAP_IDIV
 	.size	__krait_proc_info, . - __krait_proc_info
 

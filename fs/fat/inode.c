@@ -184,7 +184,8 @@ static int fat_write_end(struct file *file, struct address_space *mapping,
 }
 
 static ssize_t fat_direct_IO(int rw, struct kiocb *iocb,
-			     struct iov_iter *iter, loff_t offset)
+			     const struct iovec *iov,
+			     loff_t offset, unsigned long nr_segs)
 {
 	struct file *file = iocb->ki_filp;
 	struct address_space *mapping = file->f_mapping;
@@ -201,7 +202,7 @@ static ssize_t fat_direct_IO(int rw, struct kiocb *iocb,
 		 *
 		 * Return 0, and fallback to normal buffered write.
 		 */
-		loff_t size = offset + iov_iter_count(iter);
+		loff_t size = offset + iov_length(iov, nr_segs);
 		if (MSDOS_I(inode)->mmu_private < size)
 			return 0;
 	}
@@ -210,9 +211,10 @@ static ssize_t fat_direct_IO(int rw, struct kiocb *iocb,
 	 * FAT need to use the DIO_LOCKING for avoiding the race
 	 * condition of fat_get_block() and ->truncate().
 	 */
-	ret = blockdev_direct_IO(rw, iocb, inode, iter, offset, fat_get_block);
+	ret = blockdev_direct_IO(rw, iocb, inode, iov, offset, nr_segs,
+				 fat_get_block);
 	if (ret < 0 && (rw & WRITE))
-		fat_write_failed(mapping, offset + iov_iter_count(iter));
+		fat_write_failed(mapping, offset + iov_length(iov, nr_segs));
 
 	return ret;
 }
@@ -553,6 +555,7 @@ static void fat_put_super(struct super_block *sb)
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 
 	fat_msg(sb, KERN_INFO, "trying to unmount...");
+	ST_LOG("<%s> trying to umount... %d:%d",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));	
 
 	if (sb->s_dirt)
 		fat_write_super(sb);
@@ -569,6 +572,7 @@ static void fat_put_super(struct super_block *sb)
 	kfree(sbi);
 
 	fat_msg(sb, KERN_INFO, "unmounted successfully!");
+	ST_LOG("<%s> unmounted successfully! %d:%d",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));		
 }
 
 static struct kmem_cache *fat_inode_cachep;
@@ -720,7 +724,7 @@ retry:
 				  &raw_entry->adate, NULL);
 	}
 	spin_unlock(&sbi->inode_hash_lock);
-	mark_buffer_dirty(bh);
+	mark_buffer_dirty_sync(bh);
 	err = 0;
 	if (wait)
 		err = sync_dirty_buffer(bh);
@@ -1338,6 +1342,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	char buf[50];
 
 	fat_msg(sb, KERN_INFO, "trying to mount...");
+	ST_LOG("<%s> trying to mount... %d:%d",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));	
 	/*
 	 * GFP_KERNEL is ok here, because while we do hold the
 	 * supeblock lock, memory pressure can't call back into
@@ -1347,6 +1352,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	sbi = kzalloc(sizeof(struct msdos_sb_info), GFP_KERNEL);
 	if (!sbi) {
 		fat_msg(sb, KERN_ERR, "failed to mount! (ENOMEM)");
+		ST_LOG("<%s> failed to mount! %d:%d (ENOMEM)",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));		
 		return -ENOMEM;
 	}
 	sb->s_fs_info = sbi;
@@ -1603,6 +1609,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	}
 
 	fat_msg(sb, KERN_INFO, "mounted successfully!");
+	ST_LOG("<%s> mounted successfully! %d:%d",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));
 	return 0;
 
 out_invalid:
@@ -1612,6 +1619,7 @@ out_invalid:
 
 out_fail:
 	fat_msg(sb, KERN_ERR, "failed to mount!");
+	ST_LOG("<%s> failed to mount %d:%d",__func__,MAJOR(sb->s_dev),MINOR(sb->s_dev));
 	if (fat_inode)
 		iput(fat_inode);
 	unload_nls(sbi->nls_io);

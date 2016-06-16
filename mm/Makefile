@@ -13,9 +13,7 @@ obj-y			:= filemap.o mempool.o oom_kill.o fadvise.o \
 			   readahead.o swap.o truncate.o vmscan.o shmem.o \
 			   prio_tree.o util.o mmzone.o vmstat.o backing-dev.o \
 			   page_isolation.o mm_init.o mmu_context.o percpu.o \
-			   compaction.o vmacache.o $(mmu-y) \
-			   showmem.o vmpressure.o
-
+			   compaction.o $(mmu-y)
 obj-y += init-mm.o
 
 ifdef CONFIG_NO_BOOTMEM
@@ -37,7 +35,8 @@ obj-$(CONFIG_SPARSEMEM)	+= sparse.o
 obj-$(CONFIG_SPARSEMEM_VMEMMAP) += sparse-vmemmap.o
 obj-$(CONFIG_SLOB) += slob.o
 obj-$(CONFIG_MMU_NOTIFIER) += mmu_notifier.o
-obj-$(CONFIG_KSM) += ksm.o
+obj-$(CONFIG_KSM_LEGACY) += ksm.o
+obj-$(CONFIG_UKSM) += uksm.o
 obj-$(CONFIG_PAGE_POISONING) += debug-pagealloc.o
 obj-$(CONFIG_SLAB) += slab.o
 obj-$(CONFIG_SLUB) += slub.o
@@ -54,4 +53,7 @@ obj-$(CONFIG_HWPOISON_INJECT) += hwpoison-inject.o
 obj-$(CONFIG_DEBUG_KMEMLEAK) += kmemleak.o
 obj-$(CONFIG_DEBUG_KMEMLEAK_TEST) += kmemleak-test.o
 obj-$(CONFIG_CLEANCACHE) += cleancache.o
-obj-$(CONFIG_ZSMALLOC)	+= zsmalloc.o
+obj-$(CONFIG_ZSMALLOC_NEW) += zsmalloc.o
+obj-$(CONFIG_ZCACHE)    += zcache.o
+obj-$(CONFIG_ZBUD)  += zbud.o
+obj-$(CONFIG_ZSMALLOC)  += zsmalloc.o

@@ -103,5 +103,4 @@ struct zram {
 	struct zram_stats stats;
 	char compressor[10];
 };
-
 #endif

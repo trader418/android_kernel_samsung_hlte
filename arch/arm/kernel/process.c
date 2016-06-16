@@ -354,7 +354,6 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	int	i, j;
 	int	nlines;
 	u32	*p;
-	bool	is_cma = 0;
 
 	/*
 	 * don't attempt to dump non-kernel addresses or
@@ -362,6 +361,16 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	 */
 	if (addr < PAGE_OFFSET || addr > -256UL)
 		return;
+
+	if (is_vmalloc_addr((void *)addr))
+	{
+		struct vm_struct *area = find_vm_area((void *)addr);
+		if (area && area->flags & VM_IOREMAP)
+		{
+			pr_err("%s: not dumping ioremapped address\n",__func__);
+			return;
+		}
+	}
 
 	printk("\n%s: %#lx:\n", name, addr);
 
@@ -384,23 +393,15 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 			u32	data;
 			/*
 			 * vmalloc addresses may point to
-			 * memory-mapped peripherals. CMA
-			 * addresses may be locked down.
+			 * memory-mapped peripherals
 			 */
-			if (virt_addr_valid(p) &&
-				pfn_valid(__pa(p) >> PAGE_SHIFT)) {
-
-				is_cma = is_cma_pageblock(virt_to_page(p));
-				if (is_cma || probe_kernel_address(p, data)) {
-					printk(" ********");
-				} else {
-					printk(" %08x", data);
-				}
-				++p;
-			}
-			else {
+			if (is_vmalloc_addr(p) ||
+			    probe_kernel_address(p, data)) {
 				printk(" ********");
+			} else {
+				printk(" %08x", data);
 			}
+			++p;
 		}
 		printk("\n");
 	}

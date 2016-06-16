@@ -68,6 +68,9 @@
 #include <linux/clk.h>
 #include <linux/of_gpio.h>
 
+#ifdef CONFIG_SND_SOC_ES325_SLIM
+#define PREVENT_SLIMBUS_SLEEP_IN_FW_DL
+#endif
 #define ES325_CMD_ACCESS_WR_MAX 4
 #define ES325_CMD_ACCESS_RD_MAX 4
 struct es325_cmd_access {
@@ -152,6 +155,9 @@ static unsigned int es325_BWE_enable = ES325_MAX_INVALID_BWE;
 static unsigned int es325_BWE_enable_new = ES325_MAX_INVALID_BWE;
 static unsigned int es325_Tx_NS = ES325_MAX_INVALID_TX_NS;
 static unsigned int es325_Tx_NS_new = ES325_MAX_INVALID_TX_NS;
+#if defined(PREVENT_SLIMBUS_SLEEP_IN_FW_DL)
+extern void msm_slim_es325_write_flag_set(int flag);
+#endif 
 
 /* codec private data */
 struct es325_priv {
@@ -1903,7 +1909,10 @@ static int es325_bootup(struct es325_priv *es325)
 	msg[1] = ES325_BOOT_CMD >> 8;
 	dev_dbg(&sbdev->dev, "=[ES325]=%s(): msg[0] = 0x%02x msg[1] = 0x%02x msg[2] = 0x%02x msg[3] = 0x%02x\n",
 		__func__, msg[0], msg[1], msg[2], msg[3]);
-
+#if defined(PREVENT_SLIMBUS_SLEEP_IN_FW_DL)
+	/* Enable es325_write_flag before starting FW downloading */	
+    msm_slim_es325_write_flag_set(1);
+#endif
 	/* Keep SLIMBus CG unchangeable during FW downloading time */
 	rc = slim_reservemsg_bw(sbdev, 3072000, true);
 	if (rc < 0)
@@ -1967,6 +1976,10 @@ static int es325_bootup(struct es325_priv *es325)
 	}
 	dev_info(&sbdev->dev, "-[ES325]=%s()\n", __func__);
 	slim_reservemsg_bw(sbdev, 0, true);
+#if defined(PREVENT_SLIMBUS_SLEEP_IN_FW_DL)	
+	/* Disable es325_write_flag after FW downloading */	
+    msm_slim_es325_write_flag_set(0);
+#endif
 	return 0;
 }
 
@@ -2276,8 +2289,7 @@ static int es325_wakeup(struct es325_priv *es325)
 		gpio_set_value(5, 1);
 		usleep_range(10000, 10000);
 	}
-#elif (defined(CONFIG_MACH_HLTESKT) || defined(CONFIG_MACH_HLTEKTT) || defined(CONFIG_MACH_FRESCOLTESKT) || defined(CONFIG_MACH_FRESCOLTEKTT)) \
-&& defined(CONFIG_ES325_UART_WORKAROUND_ENG_ONLY)
+#elif (defined(CONFIG_MACH_HLTESKT) || defined(CONFIG_MACH_HLTEKTT) || defined(CONFIG_MACH_FRESCOLTESKT) || defined(CONFIG_MACH_FRESCOLTEKTT)) && defined(CONFIG_ES325_UART_WORKAROUND_ENG_ONLY)
 	if (system_rev == 5) {
 		pr_info("%s : [ES325] ES325_UART_WORKAROUND system rev = %d\n", __func__, system_rev);
 		gpio_tlmm_config(GPIO_CFG(4, 0, GPIO_CFG_INPUT,
@@ -2704,7 +2716,10 @@ int es325_set_VEQ_max_gain(int volume)
 	/* 8 level Voice Rx volume for VZW */
 	static char VEQ_max_gain[8] = {3, 3, 3, 5, 7, 9, 7, 4}; /* index 0 means max volume */
 	static char VEQ_adj_gain[8] = {30, 2, 2, 2, 2, 2, 2, 2};
-#elif defined(CONFIG_MACH_HLTEATT) || defined(CONFIG_MACH_HLTEEUR) || defined(CONFIG_MACH_H3GDUOS) || (CONFIG_MACH_HLTETMO)
+#elif defined(CONFIG_MACH_HLTETMO)
+	static char VEQ_max_gain[6] = {3, 5, 7, 9, 7, 4}; /* index 0 means max volume */
+	static char VEQ_adj_gain[6] = {25, 2, 2, 2, 2, 2};
+#elif defined(CONFIG_MACH_HLTEATT) || defined(CONFIG_MACH_HLTEEUR) || defined(CONFIG_MACH_H3GDUOS)
 	static char VEQ_max_gain[6] = {3, 5, 7, 9, 7, 4}; /* index 0 means max volume */
 	static char VEQ_adj_gain[6] = {25, 2, 2, 2, 2, 2};
 #elif defined(CONFIG_MACH_HLTESPR)

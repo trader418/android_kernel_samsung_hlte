@@ -2,8 +2,8 @@
  * Linux/PA-RISC Project (http://www.parisc-linux.org/)
  *
  * kernel entry points (interruptions, system call wrappers)
- *  Copyright (C) 1999,2000 Philipp Rumpf 
- *  Copyright (C) 1999 SuSE GmbH Nuernberg 
+ *  Copyright (C) 1999,2000 Philipp Rumpf
+ *  Copyright (C) 1999 SuSE GmbH Nuernberg
  *  Copyright (C) 2000 Hewlett-Packard (John Marvin)
  *  Copyright (C) 1999 Hewlett-Packard (Frank Rowand)
  *
@@ -164,7 +164,7 @@
 	b	intr_extint
 	mfsp    %sr7,%r16
 	.align	32
-	.endm	
+	.endm
 
 	.import	os_hpmc, code
 
@@ -205,7 +205,7 @@
 	.align		32
 	.endm
 #endif
-	
+
 	/*
 	 * itlb miss interruption handler (parisc 2.0)
 	 */
@@ -221,7 +221,7 @@
 
 	.align		32
 	.endm
-	
+
 #ifndef CONFIG_64BIT
 	/*
 	 * naitlb miss interruption handler (parisc 1.1 - 32 bit)
@@ -236,7 +236,7 @@
 	.align		32
 	.endm
 #endif
-	
+
 	/*
 	 * naitlb miss interruption handler (parisc 2.0)
 	 */
@@ -253,7 +253,7 @@
 
 	.align		32
 	.endm
-	
+
 #ifndef CONFIG_64BIT
 	/*
 	 * dtlb miss interruption handler (parisc 1.1 - 32 bit)
@@ -285,7 +285,7 @@
 
 	.align		32
 	.endm
-	
+
 #ifndef CONFIG_64BIT
 	/* nadtlb miss interruption handler (parisc 1.1 - 32 bit) */
 
@@ -298,7 +298,7 @@
 	.align		32
 	.endm
 #endif
-	
+
 	/* nadtlb miss interruption handler (parisc 2.0) */
 
 	.macro	nadtlb_20 code
@@ -313,7 +313,7 @@
 
 	.align		32
 	.endm
-	
+
 #ifndef CONFIG_64BIT
 	/*
 	 * dirty bit trap interruption handler (parisc 1.1 - 32 bit)
@@ -369,7 +369,7 @@
 	mfctl		%cr25,\reg
 	.endm
 
-	/* 
+	/*
 		space_check(spc,tmp,fault)
 
 		spc - The space we saw the fault with.
@@ -377,7 +377,7 @@
 		fault - Function to call on failure.
 
 		Only allow faults on different spaces from the
-		currently active one if we're the kernel 
+		currently active one if we're the kernel
 
 	*/
 	.macro		space_check	spc,tmp,fault
@@ -391,7 +391,7 @@
 	.endm
 
 	/* Look up a PTE in a 2-Level scheme (faulting at each
-	 * level if the entry isn't present 
+	 * level if the entry isn't present
 	 *
 	 * NOTE: we use ldw even for LP64, since the short pointers
 	 * can address up to 1TB
@@ -552,7 +552,7 @@
 	 * entry (identifying the physical page) and %r23 up with
 	 * the from tlb entry (or nothing if only a to entry---for
 	 * clear_user_page_asm) */
-	.macro		do_alias	spc,tmp,tmp1,va,pte,prot,fault
+	.macro		do_alias	spc,tmp,tmp1,va,pte,prot,fault,patype
 	cmpib,COND(<>),n 0,\spc,\fault
 	ldil		L%(TMPALIAS_MAP_START),\tmp
 #if defined(CONFIG_64BIT) && (TMPALIAS_MAP_START >= 0x80000000)
@@ -581,11 +581,15 @@
 	 */
 	cmpiclr,=	0x01,\tmp,%r0
 	ldi		(_PAGE_DIRTY|_PAGE_READ|_PAGE_WRITE),\prot
-#ifdef CONFIG_64BIT
+.ifc \patype,20
 	depd,z		\prot,8,7,\prot
-#else
+.else
+.ifc \patype,11
 	depw,z		\prot,8,7,\prot
-#endif
+.else
+	.error "undefined PA type to do_alias"
+.endif
+.endif
 	/*
 	 * OK, it is in the temp alias region, check whether "from" or "to".
 	 * Check "subtle" note in pacache.S re: r23/r26.
@@ -597,7 +601,7 @@
 #endif
 	or,COND(tr)	%r23,%r0,\pte
 	or		%r26,%r0,\pte
-	.endm 
+	.endm
 
 
 	/*
@@ -1046,7 +1050,7 @@ intr_extint:
 
 	ldo	PT_FR0(%r29), %r24
 	save_fp	%r24
-	
+
 	loadgp
 
 	copy	%r29, %r26	/* arg0 is pt_regs */
@@ -1127,7 +1131,7 @@ skip_save_ior:
 
 	ldo		PT_FR0(%r29), %r25
 	save_fp		%r25
-	
+
 	loadgp
 
 	copy		%r29, %r25	/* arg1 is pt_regs */
@@ -1182,14 +1186,14 @@ dtlb_miss_20w:
 	update_ptep	ptp,pte,t0,t1
 
 	make_insert_tlb	spc,pte,prot
-	
+
 	idtlbt          pte,prot
 
 	rfir
 	nop
 
 dtlb_check_alias_20w:
-	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault
+	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault,20
 
 	idtlbt          pte,prot
 
@@ -1213,7 +1217,7 @@ nadtlb_miss_20w:
 	nop
 
 nadtlb_check_alias_20w:
-	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate
+	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate,20
 
 	idtlbt          pte,prot
 
@@ -1245,7 +1249,7 @@ dtlb_miss_11:
 	nop
 
 dtlb_check_alias_11:
-	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault
+	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault,11
 
 	idtlba          pte,(va)
 	idtlbp          prot,(va)
@@ -1277,7 +1281,7 @@ nadtlb_miss_11:
 	nop
 
 nadtlb_check_alias_11:
-	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate
+	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate,11
 
 	idtlba          pte,(va)
 	idtlbp          prot,(va)
@@ -1304,8 +1308,8 @@ dtlb_miss_20:
 	nop
 
 dtlb_check_alias_20:
-	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault
-	
+	do_alias	spc,t0,t1,va,pte,prot,dtlb_fault,20
+
 	idtlbt          pte,prot
 
 	rfir
@@ -1323,14 +1327,14 @@ nadtlb_miss_20:
 	make_insert_tlb	spc,pte,prot
 
 	f_extend	pte,t0
-	
+
         idtlbt          pte,prot
 
 	rfir
 	nop
 
 nadtlb_check_alias_20:
-	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate
+	do_alias	spc,t0,t1,va,pte,prot,nadtlb_emulate,20
 
 	idtlbt          pte,prot
 
@@ -1351,8 +1355,8 @@ nadtlb_emulate:
 	 * of the instruction. Since we don't insert a translation
 	 * we can get a lot of faults during a flush loop, so it makes
 	 * sense to try to do it here with minimum overhead. We only
-	 * emulate fdc,fic,pdc,probew,prober instructions whose base 
-	 * and index registers are not shadowed. We defer everything 
+	 * emulate fdc,fic,pdc,probew,prober instructions whose base
+	 * and index registers are not shadowed. We defer everything
 	 * else to the "slow" path.
 	 */
 
@@ -1385,10 +1389,10 @@ nadtlb_nullify:
 	rfir
 	nop
 
-	/* 
+	/*
 		When there is no translation for the probe address then we
 		must nullify the insn and return zero in the target regsiter.
-		This will indicate to the calling code that it does not have 
+		This will indicate to the calling code that it does not have
 		write/read privileges to this address.
 
 		This should technically work for prober and probew in PA 1.1,
@@ -1428,7 +1432,7 @@ itlb_miss_20w:
 	update_ptep	ptp,pte,t0,t1
 
 	make_insert_tlb	spc,pte,prot
-	
+
 	iitlbt          pte,prot
 
 	rfir
@@ -1457,7 +1461,7 @@ naitlb_miss_20w:
 	nop
 
 naitlb_check_alias_20w:
-	do_alias	spc,t0,t1,va,pte,prot,naitlb_fault
+	do_alias	spc,t0,t1,va,pte,prot,naitlb_fault,20
 
 	iitlbt		pte,prot
 
@@ -1511,7 +1515,7 @@ naitlb_miss_11:
 	nop
 
 naitlb_check_alias_11:
-	do_alias	spc,t0,t1,va,pte,prot,itlb_fault
+	do_alias	spc,t0,t1,va,pte,prot,itlb_fault,11
 
 	iitlba          pte,(%sr0, va)
 	iitlbp          prot,(%sr0, va)
@@ -1531,7 +1535,7 @@ itlb_miss_20:
 
 	make_insert_tlb	spc,pte,prot
 
-	f_extend	pte,t0	
+	f_extend	pte,t0
 
 	iitlbt          pte,prot
 
@@ -1557,7 +1561,7 @@ naitlb_miss_20:
 	nop
 
 naitlb_check_alias_20:
-	do_alias	spc,t0,t1,va,pte,prot,naitlb_fault
+	do_alias	spc,t0,t1,va,pte,prot,naitlb_fault,20
 
 	iitlbt          pte,prot
 
@@ -1589,7 +1593,7 @@ dbit_nolock_20w:
 	update_dirty	ptp,pte,t1
 
 	make_insert_tlb	spc,pte,prot
-		
+
 	idtlbt          pte,prot
 #ifdef CONFIG_SMP
 	cmpib,COND(=),n        0,spc,dbit_nounlock_20w
@@ -1667,7 +1671,7 @@ dbit_nolock_20:
 	make_insert_tlb	spc,pte,prot
 
 	f_extend	pte,t1
-	
+
         idtlbt          pte,prot
 
 #ifdef CONFIG_SMP
@@ -1866,7 +1870,7 @@ ENTRY(sys_vfork_wrapper)
 	LDREG	-RP_OFFSET-FRAME_SIZE(%r30),%r2
 ENDPROC(sys_vfork_wrapper)
 
-	
+
 	.macro  execve_wrapper execve
 	LDREG	TI_TASK-THREAD_SZ_ALGN-FRAME_SIZE(%r30),%r1
 	ldo	TASK_REGS(%r1),%r1	/* get pt regs */
@@ -2093,7 +2097,7 @@ syscall_restore:
 	ssm     PSW_SM_I, %r0
 
 	/* Set sr2 to zero for userspace syscalls to work. */
-	mtsp	%r0,%sr2 
+	mtsp	%r0,%sr2
 	mtsp	%r1,%sr4			   /* Restore sr4 */
 	mtsp	%r1,%sr5			   /* Restore sr5 */
 	mtsp	%r1,%sr6			   /* Restore sr6 */
@@ -2374,4 +2378,3 @@ set_register:
 	copy    %r1,%r30
 	bv      %r0(%r25)    /* r31 */
 	copy    %r1,%r31
-

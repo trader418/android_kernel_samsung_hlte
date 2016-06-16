@@ -65,4 +65,4 @@ s3c2412_sleep_enter1:
 	strne	r9, [r3]
 	bne	s3c2412_sleep_enter1
 
-	ret	r14
+	ret	lr

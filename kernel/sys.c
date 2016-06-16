@@ -50,6 +50,9 @@
 #include <linux/user_namespace.h>
 
 #include <linux/kmsg_dump.h>
+#ifdef CONFIG_SEC_DEBUG
+#include <mach/sec_debug.h>
+#endif
 /* Move somewhere else to avoid recompiling? */
 #include <generated/utsrelease.h>
 
@@ -437,6 +440,9 @@ static void migrate_to_reboot_cpu(void)
  */
 void kernel_restart(char *cmd)
 {
+#ifdef CONFIG_SEC_MONITOR_BATTERY_REMOVAL
+	kernel_sec_set_normal_pwroff(1);
+#endif
 	kernel_restart_prepare(cmd);
 	migrate_to_reboot_cpu();
 	syscore_shutdown();
@@ -481,6 +487,9 @@ EXPORT_SYMBOL_GPL(kernel_halt);
  */
 void kernel_power_off(void)
 {
+#ifdef CONFIG_SEC_MONITOR_BATTERY_REMOVAL
+	kernel_sec_set_normal_pwroff(1);
+#endif
 	kernel_shutdown_prepare(SYSTEM_POWER_OFF);
 	if (pm_power_off_prepare)
 		pm_power_off_prepare();
@@ -589,8 +598,11 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	return ret;
 }
 
+extern void do_emergency_remount(struct work_struct *work);
+
 static void deferred_cad(struct work_struct *dummy)
 {
+	do_emergency_remount(NULL);
 	kernel_restart(NULL);
 }
 
@@ -742,7 +754,6 @@ static int set_user(struct cred *new)
 
 	free_uid(new->user);
 	new->user = new_user;
-	sched_autogroup_create_attach(current);
 	return 0;
 }
 
@@ -1284,7 +1295,7 @@ out:
 	write_unlock_irq(&tasklist_lock);
 	if (err > 0) {
 		proc_sid_connector(group_leader);
-		
+		sched_autogroup_create_attach(group_leader);
 	}
 	return err;
 }
@@ -2090,7 +2101,9 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		unsigned long, arg4, unsigned long, arg5)
 {
 	struct task_struct *me = current;
+#ifndef CONFIG_SEC_H_PROJECT
 	struct task_struct *tsk;
+#endif
 	unsigned char comm[sizeof(me->comm)];
 	long error;
 
@@ -2250,12 +2263,15 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		case PR_SET_VMA:
 			error = prctl_set_vma(arg2, arg3, arg4, arg5);
 			break;
+		/* remove this case because of sidesync call mute for H-projects */
+
+#ifndef CONFIG_SEC_H_PROJECT
 		case PR_SET_TIMERSLACK_PID:
-			if (task_pid_vnr(current) != (pid_t)arg3 &&
+			if (current->pid != (pid_t)arg3 &&
 					!capable(CAP_SYS_NICE))
 				return -EPERM;
 			rcu_read_lock();
-			tsk = find_task_by_vpid((pid_t)arg3);
+			tsk = find_task_by_pid_ns((pid_t)arg3, &init_pid_ns);
 			if (tsk == NULL) {
 				rcu_read_unlock();
 				return -EINVAL;
@@ -2270,16 +2286,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 			put_task_struct(tsk);
 			error = 0;
 			break;
-		case PR_SET_NO_NEW_PRIVS:
-			if (arg2 != 1 || arg3 || arg4 || arg5)
-				return -EINVAL;
-
-			current->no_new_privs = 1;
-			break;
-		case PR_GET_NO_NEW_PRIVS:
-			if (arg2 || arg3 || arg4 || arg5)
-				return -EINVAL;
-			return current->no_new_privs ? 1 : 0;
+#endif
 		default:
 			error = -EINVAL;
 			break;

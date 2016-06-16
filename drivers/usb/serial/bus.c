@@ -72,7 +72,7 @@ static int usb_serial_device_probe(struct device *dev)
 	retval = device_create_file(dev, &dev_attr_port_number);
 	if (retval) {
 		if (driver->port_remove)
-			retval = driver->port_remove(port);
+			driver->port_remove(port);
 		goto exit;
 	}
 
@@ -98,7 +98,6 @@ static int usb_serial_device_remove(struct device *dev)
 {
 	struct usb_serial_driver *driver;
 	struct usb_serial_port *port;
-	struct device *tty_dev;
 	int retval = 0;
 	int minor;
 

@@ -25,14 +25,15 @@
 #include <linux/tick.h>
 #include <linux/suspend.h>
 #include <linux/pm_qos.h>
-#include <linux/quickwakeup.h>
 #include <linux/of_platform.h>
+#include <linux/of_gpio.h>
 #include <mach/mpm.h>
 #include <mach/cpuidle.h>
 #include <mach/event_timer.h>
 #include "pm.h"
 #include "rpm-notifier.h"
 #include "spm.h"
+#include "idle.h"
 #include "clock.h"
 
 #include <mach/gpiomux.h>
@@ -136,7 +137,6 @@ module_param_named(
 static int msm_pm_sleep_time_override;
 module_param_named(sleep_time_override,
 	msm_pm_sleep_time_override, int, S_IRUGO | S_IWUSR | S_IWGRP);
-static uint64_t suspend_wake_time;
 
 static int msm_pm_sleep_sec_debug;
 module_param_named(secdebug,
@@ -292,8 +292,7 @@ static int lpm_system_mode_select(
 	int i;
 	uint32_t best_level_pwr = ~0U;
 	uint32_t pwr;
-	uint32_t latency_us = pm_qos_request_for_cpu(PM_QOS_CPU_DMA_LATENCY,
-							smp_processor_id());
+	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 
 	if (!system_state->system_level)
 		return -EINVAL;
@@ -393,10 +392,9 @@ static void lpm_system_prepare(struct lpm_system_state *system_state,
 			goto bail_system_sleep;
 		}
 
-		if (!suspend_wake_time)
-			suspend_wake_time =  msm_pm_sleep_time_override;
+
 		if (!from_idle)
-			us = USEC_PER_SEC * suspend_wake_time;
+			us = USEC_PER_SEC * msm_pm_sleep_time_override;
 
 		do_div(us, USEC_PER_SEC/SCLK_HZ);
 		sclk = (uint32_t)us;
@@ -474,21 +472,6 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
 		return level->pwr.latency_us;
 }
 
-void lpm_suspend_wake_time(uint64_t wakeup_time)
-{
-	if (wakeup_time <= 0) {
-		suspend_wake_time = msm_pm_sleep_time_override;
-		return;
-	}
-
-	if (msm_pm_sleep_time_override &&
-			(msm_pm_sleep_time_override < wakeup_time))
-			suspend_wake_time = msm_pm_sleep_time_override;
-	else
-			suspend_wake_time = wakeup_time;
-}
-EXPORT_SYMBOL(lpm_suspend_wake_time);
-
 static int lpm_cpu_callback(struct notifier_block *cpu_nb,
 	unsigned long action, void *hcpu)
 {
@@ -529,8 +512,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 {
 	int best_level = -1;
 	uint32_t best_level_pwr = ~0U;
-	uint32_t latency_us = pm_qos_request_for_cpu(PM_QOS_CPU_DMA_LATENCY,
-							dev->cpu);
+	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 	uint32_t sleep_us =
 		(uint32_t)(ktime_to_us(tick_nohz_get_sleep_length()));
 	uint32_t modified_time_us = 0;
@@ -582,11 +564,6 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 			if (!dev->cpu && msm_rpm_waiting_for_ack())
 					break;
 
-		if ((MSM_PM_SLEEP_MODE_POWER_COLLAPSE == mode)
-				&& (num_online_cpus() > 1)
-				&& !sys_state.allow_synched_levels)
-			continue;
-
 		if ((next_wakeup_us >> 10) > pwr->time_overhead_us) {
 			power = pwr->ss_power;
 		} else {
@@ -599,7 +576,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 		if (best_level_pwr >= power) {
 			best_level = i;
 			best_level_pwr = power;
-			if (next_event_us && next_event_us < sleep_us &&
+			if (next_event_us < sleep_us &&
 				(mode != MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT))
 				modified_time_us = next_event_us
 							- pwr->latency_us;
@@ -831,6 +808,15 @@ static int lpm_suspend_prepare(void)
 	msm_mpm_suspend_prepare();
 	regulator_showall_enabled();
 
+/* Temporary fix for RUBEN LTE for configuring GPIO 33 to NC configuration
+before entering sleep as some other process is changing it*/
+#if defined (CONFIG_MACH_RUBENSLTE_OPEN)
+	if (gpio_is_valid(33)) {
+		gpio_tlmm_config(GPIO_CFG(33, 0,
+			GPIO_CFG_INPUT,GPIO_CFG_PULL_DOWN,GPIO_CFG_2MA),
+			GPIO_CFG_ENABLE);
+	}
+#endif
 #ifdef CONFIG_SEC_GPIO_DVS
 	/************************ Caution !!! ****************************
 	 * This functiongit a must be located in appropriate SLEEP position
@@ -874,7 +860,6 @@ static const struct platform_suspend_ops lpm_suspend_ops = {
 	.valid = suspend_valid_only_mem,
 	.prepare_late = lpm_suspend_prepare,
 	.wake = lpm_suspend_wake,
-	.suspend_again = quickwakeup_suspend_again,
 };
 
 static void setup_broadcast_timer(void *arg)

@@ -19,6 +19,16 @@ config MSM_CAMERA_DEBUG
 	help
 	  Enable printk() debug for msm camera
 
+config MSM_TORCH_CONTROL
+	bool "Sysfs torch control for HLTE (MAX77803)"
+	depends on LEDS_MAX77803
+	default n
+	help
+	  Say Y here to enable torch control via
+	  /sys/class/camera/torch
+	  All other methods of torch control will be routed
+	  through this driver.
+
 menuconfig MSMB_CAMERA
 	bool "Qualcomm MSM camera and video capture 2.0 support"
 	depends on ARCH_MSM && VIDEO_V4L2 && I2C
@@ -35,12 +45,7 @@ config MSMB_CAMERA_DEBUG
 	  Enable printk() debug for msm camera 2.0
 
 if MSMB_CAMERA
-if SEC_H_PROJECT
-source "drivers/media/platform/msm/camera_h/Kconfig"
-endif
-if !SEC_H_PROJECT
 source "drivers/media/platform/msm/camera_v2/Kconfig"
-endif
 endif # MSMB_CAMERA
 
 source "drivers/media/platform/msm/vidc/Kconfig"

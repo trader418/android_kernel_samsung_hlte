@@ -725,6 +725,10 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
 	avc_dump_query(ab, ad->selinux_audit_data->slad->ssid,
 			   ad->selinux_audit_data->slad->tsid,
 			   ad->selinux_audit_data->slad->tclass);
+	if (ad->selinux_audit_data->slad->denied) {
+		audit_log_format(ab, " permissive=%u",
+				 ad->selinux_audit_data->slad->result ? 0 : 1);
+	}
 }
 
 /* This is the slow part of avc audit with big stack footprint */
@@ -840,7 +844,7 @@ inline int avc_audit(u32 ssid, u32 tsid,
 		return 0;
 
 	return slow_avc_audit(ssid, tsid, tclass,
-		requested, audited, 0, result,
+		requested, audited, denied, result,
 		a, flags);
 }
 
@@ -1072,6 +1076,16 @@ static noinline int avc_denied(u32 ssid, u32 tsid,
 				u8 driver, u8 xperm, unsigned flags,
 				struct av_decision *avd)
 {
+	if (flags & AVC_STRICT)
+		return -EACCES;
+#if defined(CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE)
+	if (!(avd->flags & AVD_FLAGS_PERMISSIVE))
+		return -EACCES;
+#elif !defined(CONFIG_SECURITY_SELINUX_NEVER_ENFORCE)
+	if (selinux_enforcing && !(avd->flags & AVD_FLAGS_PERMISSIVE))
+		return -EACCES;
+#endif
+
 	avc_update_node(AVC_CALLBACK_GRANT, requested, driver, xperm, ssid,
 				tsid, tclass, avd->seqno, NULL, flags);
 	return 0;

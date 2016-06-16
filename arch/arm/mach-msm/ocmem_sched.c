@@ -718,8 +718,6 @@ static int __sched_grow(struct ocmem_req *req, bool can_block)
 	struct ocmem_zone *zone = get_zone(owner);
 	struct ocmem_region *region = NULL;
 
-	BUG_ON(!zone);
-
 	matched_region = find_region_match(req->req_start, req->req_end);
 	matched_req = find_req_match(req->req_id, matched_region);
 
@@ -1575,7 +1573,7 @@ int process_free(int id, struct ocmem_handle *handle)
 		/* free the allocation */
 		rc = do_free(req);
 		if (rc < 0)
-			return -EINVAL;
+			goto free_fail;
 	}
 
 	inc_ocmem_stat(zone_of(req), NR_FREES);
@@ -1608,8 +1606,6 @@ static void ocmem_rdm_worker(struct work_struct *work)
 	struct ocmem_handle *handle = work_data->handle;
 	struct ocmem_req *req = handle_to_req(handle);
 	struct ocmem_buf *buffer = handle_to_buffer(handle);
-
-	BUG_ON(!req);
 
 	down_write(&req->rw_sem);
 	offset = phys_to_offset(req->req_start);

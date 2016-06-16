@@ -7,3 +7,4 @@ config SECURITY_SMACK
 	  Smack is useful for sensitivity, integrity, and a variety
 	  of other mandatory security schemes.
 	  If you are unsure how to answer this question, answer N.
+

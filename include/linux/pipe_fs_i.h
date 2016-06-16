@@ -56,7 +56,7 @@ struct pipe_inode_info {
 	struct fasync_struct *fasync_writers;
 	struct inode *inode;
 	struct pipe_buffer *bufs;
-	struct user_struct *user;
+        struct user_struct *user;
 };
 
 /*

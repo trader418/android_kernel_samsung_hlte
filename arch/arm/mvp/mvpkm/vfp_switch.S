@@ -208,4 +208,3 @@ LoadVFP:
 	 */
 	ldmia	sp!, {r4-r6}
 	ret	lr
-

@@ -67,7 +67,7 @@ static cpumask_t smp_commenced_mask;
 void smp_info(struct seq_file *m)
 {
 	int i;
-	
+
 	seq_printf(m, "State:\n");
 	for_each_online_cpu(i)
 		seq_printf(m, "CPU%d:\t\tonline\n", i);
@@ -76,7 +76,7 @@ void smp_info(struct seq_file *m)
 void smp_bogo(struct seq_file *m)
 {
 	int i;
-	
+
 	for_each_online_cpu(i)
 		seq_printf(m,
 			   "Cpu%dClkTck\t: %016lx\n",
@@ -1260,7 +1260,7 @@ void __devinit smp_fill_in_sib_core_maps(void)
 	}
 }
 
-int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *tidle)
+int __cpuinit __cpu_up(unsigned int cpu)
 {
 	int ret = smp_boot_one_cpu(cpu);
 

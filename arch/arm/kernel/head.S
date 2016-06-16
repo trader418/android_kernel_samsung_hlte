@@ -142,7 +142,7 @@ ENTRY(stext)
 	mov	r8, r4				@ set TTBR1 to swapper_pg_dir
  ARM(	add	pc, r10, #PROCINFO_INITFUNC	)
  THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
- THUMB(	ret	r12				)
+ THUMB(	mov	pc, r12				)
 1:	b	__enable_mmu
 ENDPROC(stext)
 	.ltorg
@@ -330,7 +330,7 @@ __create_page_tables:
 #ifdef CONFIG_ARM_LPAE
 	sub	r4, r4, #0x1000		@ point to the PGD table
 #endif
-	ret	lr
+	mov	pc, lr
 ENDPROC(__create_page_tables)
 	.ltorg
 	.align
@@ -371,7 +371,7 @@ ENTRY(secondary_startup)
  ARM(	add	pc, r10, #PROCINFO_INITFUNC	) @ initialise processor
 						  @ (return control reg)
  THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
- THUMB(	ret	r12				)
+ THUMB(	mov	pc, r12				)
 ENDPROC(secondary_startup)
 
 	/*
@@ -429,8 +429,26 @@ __enable_mmu:
 		      domain_val(DOMAIN_KERNEL, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_TABLE, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_IO, DOMAIN_CLIENT))
+#ifdef	CONFIG_TIMA_RKP_30
+#ifndef CONFIG_TIMA_RKP_EMUL_CP15_INSTR
+	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
+#endif	/* CONFIG_TIMA_RKP_EMUL_CP15_INSTR */
+	/* TIMA loads TTBR0 */
+	.arch_extension sec
+	mov r6, r0  @ save r0
+
+	ldr r0, =0x3f827221
+	smc #1
+
+	mov r0, r6  @ restore r0
+
+	/* Flush TLB */
+	mcr    p15, 0, r0, c8, c3, 0
+	dsb
+#else
 	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
+#endif  /* CONFIG_TIMA_RKP_30 */
 #endif
 	b	__turn_mmu_on
 ENDPROC(__enable_mmu)
@@ -470,7 +488,7 @@ ENTRY(__turn_mmu_on)
 	mcreq	p15, 7, r3, c15, c0, 2
 #endif
 	mov	r3, r13
-	ret	r3
+	mov	pc, r3
 __turn_mmu_on_end:
 ENDPROC(__turn_mmu_on)
 	.popsection
@@ -489,12 +507,12 @@ __fixup_smp:
 	orr	r4, r4, #0x0000b000
 	orr	r4, r4, #0x00000020	@ val 0x4100b020
 	teq	r3, r4			@ ARM 11MPCore?
-	reteq	lr			@ yes, assume SMP
+	moveq	pc, lr			@ yes, assume SMP
 
 	mrc	p15, 0, r0, c0, c0, 5	@ read MPIDR
 	and	r0, r0, #0xc0000000	@ multiprocessing extensions and
 	teq	r0, #0x80000000		@ not part of a uniprocessor system?
-	reteq	lr			@ yes, assume SMP
+	moveq	pc, lr			@ yes, assume SMP
 
 __fixup_smp_on_up:
 	adr	r0, 1f
@@ -521,7 +539,7 @@ smp_on_up:
 	.text
 __do_fixup_smp_on_up:
 	cmp	r4, r5
-	reths	lr
+	movhs	pc, lr
 	ldmia	r4!, {r0, r6}
  ARM(	str	r6, [r0, r3]	)
  THUMB(	add	r0, r0, r3	)
@@ -605,7 +623,7 @@ __fixup_a_pv_table:
 2:	cmp	r4, r5
 	ldrcc	r7, [r4], #4	@ use branch for delay slot
 	bcc	1b
-	ret	lr
+	mov	pc, lr
 #endif
 ENDPROC(__fixup_a_pv_table)
 

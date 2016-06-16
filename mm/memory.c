@@ -114,6 +114,37 @@ __setup("norandmaps", disable_randmaps);
 unsigned long zero_pfn __read_mostly;
 unsigned long highest_memmap_pfn __read_mostly;
 
+#ifdef CONFIG_UKSM
+unsigned long uksm_zero_pfn __read_mostly;
+struct page *empty_uksm_zero_page;
+
+static int __init setup_uksm_zero_page(void)
+{
+	unsigned long addr;
+	addr = __get_free_pages(GFP_KERNEL | __GFP_ZERO, 0);
+	if (!addr)
+		panic("Oh boy, that early out of memory?");
+
+	empty_uksm_zero_page = virt_to_page((void *) addr);
+	SetPageReserved(empty_uksm_zero_page);
+
+	uksm_zero_pfn = page_to_pfn(empty_uksm_zero_page);
+
+	return 0;
+}
+core_initcall(setup_uksm_zero_page);
+
+static inline int is_uksm_zero_pfn(unsigned long pfn)
+{
+	return pfn == uksm_zero_pfn;
+}
+#else
+static inline int is_uksm_zero_pfn(unsigned long pfn)
+{
+	return 0;
+}
+#endif
+
 /*
  * CONFIG_MMU architectures set up ZERO_PAGE in their paging_init()
  */
@@ -123,6 +154,7 @@ static int __init init_zero_pfn(void)
 	return 0;
 }
 core_initcall(init_zero_pfn);
+
 
 
 #if defined(SPLIT_RSS_COUNTING)
@@ -731,8 +763,10 @@ static inline int is_cow_mapping(vm_flags_t flags)
 #ifndef is_zero_pfn
 static inline int is_zero_pfn(unsigned long pfn)
 {
-	return pfn == zero_pfn;
+	return (pfn == zero_pfn) || (is_uksm_zero_pfn(pfn));
 }
+#else
+#define is_zero_pfn(pfn)   (is_zero_pfn(pfn) || is_uksm_zero_pfn(pfn))
 #endif
 
 #ifndef my_zero_pfn
@@ -843,14 +877,22 @@ out:
  */
 static inline void tima_l2group_ptep_set_wrprotect(struct mm_struct *mm,
 			unsigned long address, pte_t *ptep, 
-			tima_l2group_entry_t *tima_l2group_buffer,
+			tima_l2group_entry_t *tima_l2group_buffer1,
+			tima_l2group_entry_t *tima_l2group_buffer2,
 			unsigned long *tima_l2group_buffer_index)
 {
         pte_t old_pte = *ptep;
-        timal2group_set_pte_at(ptep, pte_wrprotect(old_pte),
-        			(((unsigned long) tima_l2group_buffer) + 
-				 (sizeof(tima_l2group_entry_t)*(*tima_l2group_buffer_index))),
-				address, tima_l2group_buffer_index);
+	if (*tima_l2group_buffer_index < RKP_MAX_PGT2_ENTRIES) {
+		timal2group_set_pte_at(ptep, pte_wrprotect(old_pte),
+					(((unsigned long) tima_l2group_buffer1) + 
+					 (sizeof(tima_l2group_entry_t)*(*tima_l2group_buffer_index))),
+					address, tima_l2group_buffer_index);
+	} else {
+		timal2group_set_pte_at(ptep, pte_wrprotect(old_pte),
+					(((unsigned long) tima_l2group_buffer2) + 
+					 (sizeof(tima_l2group_entry_t)*(*tima_l2group_buffer_index - RKP_MAX_PGT2_ENTRIES))),
+					address, tima_l2group_buffer_index);
+	}
         //set_pte_at(mm, address, ptep, pte_wrprotect(old_pte)); /* Removed as grouping works */
 }
 
@@ -867,7 +909,8 @@ static inline unsigned long
 tima_l2group_copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 		pte_t *dst_pte, pte_t *src_pte, struct vm_area_struct *vma,
 		unsigned long addr, int *rss, 
-		tima_l2group_entry_t *tima_l2group_buffer,
+		tima_l2group_entry_t *tima_l2group_buffer1,
+		tima_l2group_entry_t *tima_l2group_buffer2,
 		unsigned long *tima_l2group_buffer_index,
 		unsigned long tima_l2group_flag)
 #else
@@ -930,8 +973,7 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 #ifdef CONFIG_TIMA_RKP_L2_GROUP
 		if (tima_l2group_flag) {
 			tima_l2group_ptep_set_wrprotect(src_mm, addr, src_pte,
-				tima_l2group_buffer, tima_l2group_buffer_index);
-			//(*tima_l2group_buffer_index)++;
+				tima_l2group_buffer1, tima_l2group_buffer2, tima_l2group_buffer_index);
 		}
 		else
 			ptep_set_wrprotect(src_mm, addr, src_pte);
@@ -957,6 +999,11 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 			rss[MM_ANONPAGES]++;
 		else
 			rss[MM_FILEPAGES]++;
+
+		/* Should return NULL in vm_normal_page() */
+		uksm_bugon_zeropage(pte);
+	} else {
+		uksm_map_zero_page(pte);
 	}
 
 out_set_pte:
@@ -976,8 +1023,9 @@ int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	swp_entry_t entry = (swp_entry_t){0};
 #ifdef CONFIG_TIMA_RKP_L2_GROUP
         unsigned long tima_l2group_flag = 0;
-        tima_l2group_entry_t *tima_l2group_buffer = NULL;
-        unsigned long tima_l2group_numb_entries;
+        tima_l2group_entry_t *tima_l2group_buffer1 = NULL;
+        tima_l2group_entry_t *tima_l2group_buffer2 = NULL;
+        unsigned long tima_l2group_numb_entries = ((end-addr) >> PAGE_SHIFT);
         unsigned long tima_l2group_buffer_index = 0;
 #endif
 
@@ -994,41 +1042,18 @@ again:
 	orig_dst_pte = dst_pte;
 	arch_enter_lazy_mmu_mode();
 #ifdef CONFIG_TIMA_RKP_L2_GROUP
-	/* Initialize all L2_GROUP variables */
+	/* Re-Initialize all L2_GROUP variables */
 	tima_l2group_flag= 0;
-	tima_l2group_buffer = NULL;
+	tima_l2group_buffer1 = NULL;
+	tima_l2group_buffer2 = NULL;
 	tima_l2group_numb_entries = ((end-addr) >> PAGE_SHIFT);
 	tima_l2group_buffer_index = 0;
         /*
          * Lazy mmu mode for tima:
-         * 1-Define a memory area to hold the PTEs to be changed
-         * 2-Commit the changes right away to TIMA
-	 * 0x200 = 512 bytes which is 2 L2 pages. If grouped 
-	 * entries are <= 2, there is not much point in
-	 * grouping it, in which case follow the normal path. 
          */
-        if (tima_l2group_numb_entries > 2 && tima_l2group_numb_entries <= 0x200
-		&& tima_is_pg_protected((unsigned long)src_pte) == 1) {
-        	/*
-        	 * Kmalloc does not work in this function (causes crashes) so
-        	 * we use get_free_pages instead which mostly wastes some space
-        	 */
-		/*tima_l2group_buffer = kmalloc(sizeof(*tima_l2group_buffer) * 
-						tima_l2group_numb_entries, 
-						GFP_KERNEL | GFP_ATOMIC);*/
-		tima_l2group_buffer = (tima_l2group_entry_t *)
-					__get_free_pages(GFP_ATOMIC, 1);
-		if (tima_l2group_buffer == NULL) {
-			printk(KERN_ERR"TIMA -> L2GRP FAILED %lx %lx %lx\n",
-				addr, end, tima_l2group_numb_entries);
-		} else {
-			tima_l2group_flag = 1;
-			/* make sure index is reset here, or all
-			 * hell breaks loose!
-			 */
-			tima_l2group_buffer_index = 0;
-		}
-        }
+	init_tima_rkp_group_buffers(tima_l2group_numb_entries, src_pte,
+				&tima_l2group_flag, &tima_l2group_buffer_index,
+				&tima_l2group_buffer1, &tima_l2group_buffer2);
 #endif /* CONFIG_TIMA_RKP_L2_GROUP */
 
 	do {
@@ -1054,7 +1079,8 @@ again:
 		 */
 		entry.val = tima_l2group_copy_one_pte(dst_mm, src_mm, dst_pte, src_pte,
 							vma, addr, rss, 
-							tima_l2group_buffer,
+							tima_l2group_buffer1,
+							tima_l2group_buffer2,
 							&tima_l2group_buffer_index,
 							tima_l2group_flag);
 #else		
@@ -1068,19 +1094,17 @@ again:
 
 #ifdef CONFIG_TIMA_RKP_L2_GROUP
 	if (tima_l2group_flag) {
-		unsigned long buffer_va = (unsigned long) tima_l2group_buffer;
 		/*First: Flush the cache of the buffer to be read by the TZ side
 		 */
-		flush_dcache_page(virt_to_page(buffer_va));
-		flush_dcache_page(virt_to_page(buffer_va + PAGE_SIZE));
+		if(tima_l2group_buffer1)
+			flush_dcache_page(virt_to_page(tima_l2group_buffer1));
+		if(tima_l2group_buffer2)
+			flush_dcache_page(virt_to_page(tima_l2group_buffer2));
 
 		/*Second: Pass the buffer pointer and length to TIMA to commit the changes
 		 */
-		if (tima_l2group_buffer_index) {
-			timal2group_set_pte_commit(tima_l2group_buffer,
-						tima_l2group_buffer_index, (void*)src_pte);
-		}
-		free_pages((unsigned long) tima_l2group_buffer, 1);
+		write_tima_rkp_group_buffers(tima_l2group_buffer_index,
+			&tima_l2group_buffer1, &tima_l2group_buffer2);
 	}
 #endif /* CONFIG_TIMA_RKP_L2_GROUP */
 	arch_leave_lazy_mmu_mode();
@@ -1265,8 +1289,10 @@ again:
 			ptent = ptep_get_and_clear_full(mm, addr, pte,
 							tlb->fullmm);
 			tlb_remove_tlb_entry(tlb, pte, addr);
-			if (unlikely(!page))
+			if (unlikely(!page)) {
+				uksm_unmap_zero_page(ptent);
 				continue;
+			}
 			if (unlikely(details) && details->nonlinear_vma
 			    && linear_page_index(details->nonlinear_vma,
 						addr) != page->index)
@@ -1794,7 +1820,7 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 
 	VM_BUG_ON(!!pages != !!(gup_flags & FOLL_GET));
 
-	/* 
+	/*
 	 * Require read or write permissions.
 	 * If FOLL_FORCE is set, we only require the "MAY" flags.
 	 */
@@ -1841,7 +1867,7 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 				page = vm_normal_page(vma, start, *pte);
 				if (!page) {
 					if (!(gup_flags & FOLL_DUMP) &&
-					     is_zero_pfn(pte_pfn(*pte)))
+					    (is_zero_pfn(pte_pfn(*pte))))
 						page = pte_page(*pte);
 					else {
 						pte_unmap(pte);
@@ -2666,8 +2692,10 @@ static inline void cow_user_page(struct page *dst, struct page *src, unsigned lo
 			clear_page(kaddr);
 		kunmap_atomic(kaddr);
 		flush_dcache_page(dst);
-	} else
+	} else {
 		copy_user_highpage(dst, src, va, vma);
+		uksm_cow_page(vma, src);
+	}
 }
 
 /*
@@ -2872,6 +2900,7 @@ gotten:
 		new_page = alloc_zeroed_user_highpage_movable(vma, address);
 		if (!new_page)
 			goto oom;
+		uksm_cow_pte(vma, orig_pte);
 	} else {
 		new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, address);
 		if (!new_page)
@@ -2893,8 +2922,11 @@ gotten:
 				dec_mm_counter_fast(mm, MM_FILEPAGES);
 				inc_mm_counter_fast(mm, MM_ANONPAGES);
 			}
-		} else
+			uksm_bugon_zeropage(orig_pte);
+		} else {
+			uksm_unmap_zero_page(orig_pte);
 			inc_mm_counter_fast(mm, MM_ANONPAGES);
+		}
 		flush_cache_page(vma, address, pte_pfn(orig_pte));
 		entry = mk_pte(new_page, vma->vm_page_prot);
 		entry = maybe_mkwrite(pte_mkdirty(entry), vma);

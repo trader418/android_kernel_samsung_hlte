@@ -285,7 +285,7 @@ static inline int do_exception(struct pt_regs *regs, int access)
 
 	/*
 	 * Verify that the fault happened in user space, that
-	 * we are not in an interrupt and that there is a 
+	 * we are not in an interrupt and that there is a
 	 * user context.
 	 */
 	fault = VM_FAULT_BADCONTEXT;
@@ -468,7 +468,7 @@ int __handle_fault(unsigned long uaddr, unsigned long pgm_int_code, int write)
 	return fault ? -EFAULT : 0;
 }
 
-#ifdef CONFIG_PFAULT 
+#ifdef CONFIG_PFAULT
 /*
  * 'pfault' pseudo page faults routines.
  */
@@ -548,9 +548,9 @@ static void pfault_interrupt(struct ext_code ext_code,
 
 	/*
 	 * Get the external interruption subcode & pfault
-	 * initial/completion signal bit. VM stores this 
+	 * initial/completion signal bit. VM stores this
 	 * in the 'cpu address' field associated with the
-         * external interrupt. 
+         * external interrupt.
 	 */
 	subcode = ext_code.subcode;
 	if ((subcode & 0xff00) != __SUBCODE_MASK)
@@ -581,6 +581,7 @@ static void pfault_interrupt(struct ext_code ext_code,
 			tsk->thread.pfault_wait = 0;
 			list_del(&tsk->thread.list);
 			wake_up_process(tsk);
+			put_task_struct(tsk);
 		} else {
 			/* Completion interrupt was faster than initial
 			 * interrupt. Set pfault_wait to -1 so the initial
@@ -595,14 +596,22 @@ static void pfault_interrupt(struct ext_code ext_code,
 		put_task_struct(tsk);
 	} else {
 		/* signal bit not set -> a real page is missing. */
-		if (tsk->thread.pfault_wait == -1) {
+		if (tsk->thread.pfault_wait == 1) {
+			/* Already on the list with a reference: put to sleep */
+			set_task_state(tsk, TASK_UNINTERRUPTIBLE);
+			set_tsk_need_resched(tsk);
+		} else if (tsk->thread.pfault_wait == -1) {
 			/* Completion interrupt was faster than the initial
 			 * interrupt (pfault_wait == -1). Set pfault_wait
 			 * back to zero and exit. */
 			tsk->thread.pfault_wait = 0;
 		} else {
 			/* Initial interrupt arrived before completion
-			 * interrupt. Let the task sleep. */
+			 * interrupt. Let the task sleep.
+			 * An extra task reference is needed since a different
+			 * cpu may set the task state to TASK_RUNNING again
+			 * before the scheduler is reached. */
+			get_task_struct(tsk);
 			tsk->thread.pfault_wait = 1;
 			list_add(&tsk->thread.list, &pfault_list);
 			set_task_state(tsk, TASK_UNINTERRUPTIBLE);
@@ -627,6 +636,7 @@ static int __cpuinit pfault_cpu_notify(struct notifier_block *self,
 			list_del(&thread->list);
 			tsk = container_of(thread, struct task_struct, thread);
 			wake_up_process(tsk);
+			put_task_struct(tsk);
 		}
 		spin_unlock_irq(&pfault_lock);
 		break;

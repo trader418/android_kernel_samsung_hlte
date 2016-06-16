@@ -347,7 +347,7 @@ static void __init do_boot_cpu(int phys_id)
 	}
 }
 
-int __cpuinit __cpu_up(unsigned int cpu_id, struct task_struct *tidle)
+int __cpuinit __cpu_up(unsigned int cpu_id)
 {
 	int timeout;
 
@@ -501,7 +501,7 @@ static void __init smp_online(void)
 	calibrate_delay();
 
 	/* Save our processor parameters */
- 	smp_store_cpu_info(cpu_id);
+	smp_store_cpu_info(cpu_id);
 
 	set_cpu_online(cpu_id, true);
 }

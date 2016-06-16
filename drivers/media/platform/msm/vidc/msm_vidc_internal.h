@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,7 +21,6 @@
 #include <linux/completion.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
-#include <linux/pm_qos.h>
 #include <mach/msm_bus.h>
 #include <mach/msm_bus_board.h>
 #include <mach/ocmem.h>
@@ -101,6 +100,17 @@ struct buf_info {
 	struct list_head list;
 	struct vb2_buffer *buf;
 };
+
+struct msm_vidc_list {
+	struct list_head list;
+	struct mutex lock;
+};
+
+static inline void INIT_MSM_VIDC_LIST(struct msm_vidc_list *mlist)
+{
+	mutex_init(&mlist->lock);
+	INIT_LIST_HEAD(&mlist->list);
+}
 
 enum buffer_owner {
 	DRIVER,
@@ -228,7 +238,7 @@ struct msm_vidc_inst {
 	int state;
 	struct msm_vidc_format *fmts[MAX_PORT_NUM];
 	struct buf_queue bufq[MAX_PORT_NUM];
-	struct list_head pendingq;
+	struct msm_vidc_list pendingq;
 	struct list_head internalbufs;
 	struct list_head persistbufs;
 	struct list_head outputbufs;
@@ -256,7 +266,6 @@ struct msm_vidc_inst {
 	struct list_head registered_bufs;
 	bool map_output_buffer;
 	struct v4l2_ctrl **ctrls;
-	struct pm_qos_request pm_qos;
 };
 
 extern struct msm_vidc_drv *vidc_driver;

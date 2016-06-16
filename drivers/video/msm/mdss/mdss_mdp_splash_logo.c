@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -109,7 +109,7 @@ static int mdss_mdp_splash_iommu_attach(struct msm_fb_data_type *mfd)
 {
 	struct iommu_domain *domain;
 	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
-	int rc;
+	int rc, ret;
 
 	/*
 	 * iommu dynamic attach for following conditions.
@@ -139,9 +139,9 @@ static int mdss_mdp_splash_iommu_attach(struct msm_fb_data_type *mfd)
 	if (rc) {
 		pr_debug("iommu memory mapping failed rc=%d\n", rc);
 	} else {
-		rc = mdss_iommu_attach(mdss_res);
-		if (rc) {
-			pr_debug("mdss iommu attach failed\n");
+		ret = mdss_iommu_ctrl(1);
+		if (IS_ERR_VALUE(ret)) {
+			pr_err("mdss iommu attach failed\n");
 			iommu_unmap(domain, mdp5_data->splash_mem_addr,
 						mdp5_data->splash_mem_size);
 		} else {
@@ -167,6 +167,8 @@ static void mdss_mdp_splash_unmap_splash_mem(struct msm_fb_data_type *mfd)
 
 		iommu_unmap(domain, mdp5_data->splash_mem_addr,
 						mdp5_data->splash_mem_size);
+		mdss_iommu_ctrl(0);
+
 		mfd->splash_info.iommu_dynamic_attached = false;
 	}
 }
@@ -227,8 +229,8 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 			}
 		}
 	}
-
-	if (rc || mdp5_data->handoff) {
+	if (rc || mdp5_data->handoff)
+	{
 		/* Add all the handed off pipes to the cleanup list */
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_RGB);
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_VIG);
@@ -236,22 +238,17 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 	}
 
 	mdss_mdp_ctl_splash_finish(ctl, mdp5_data->handoff);
-
-	if (mdp5_data->splash_mem_addr) {
-		/* Give back the reserved memory to the system */
-		memblock_free(mdp5_data->splash_mem_addr,
-					mdp5_data->splash_mem_size);
-		free_bootmem_late(mdp5_data->splash_mem_addr,
-				 mdp5_data->splash_mem_size);
+	if (!sec_debug_is_enabled()) {
+		if (mdp5_data->splash_mem_addr) {
+			/* Give back the reserved memory to the system */
+			memblock_free(mdp5_data->splash_mem_addr,
+						mdp5_data->splash_mem_size);
+			free_bootmem_late(mdp5_data->splash_mem_addr,
+					 mdp5_data->splash_mem_size);
+		}
 	}
 
 	mdss_mdp_footswitch_ctrl_splash(0);
-	if (!is_mdss_iommu_attached()) {
-		rc = mdss_iommu_attach(mdss_res);
-		if (rc)
-			pr_err("iommu attach failed rc=%d\n", rc);
-	}
-
 end:
 	return rc;
 }
@@ -285,8 +282,8 @@ static struct mdss_mdp_pipe *mdss_mdp_splash_get_pipe(
 }
 
 static int mdss_mdp_splash_kickoff(struct msm_fb_data_type *mfd,
-				struct mdss_rect *src_rect,
-				struct mdss_rect *dest_rect)
+				struct mdss_mdp_img_rect *src_rect,
+				struct mdss_mdp_img_rect *dest_rect)
 {
 	struct mdss_mdp_pipe *pipe;
 	struct fb_info *fbi;
@@ -399,7 +396,7 @@ static int mdss_mdp_display_splash_image(struct msm_fb_data_type *mfd)
 	struct fb_info *fbi;
 	uint32_t image_len = SPLASH_IMAGE_WIDTH * SPLASH_IMAGE_HEIGHT
 						* SPLASH_IMAGE_BPP;
-	struct mdss_rect src_rect, dest_rect;
+	struct mdss_mdp_img_rect src_rect, dest_rect;
 	struct msm_fb_splash_info *sinfo;
 
 	if (!mfd || !mfd->fbi) {
@@ -470,7 +467,6 @@ static int mdss_mdp_splash_ctl_cb(struct notifier_block *self,
 
 	if (!sinfo->frame_done_count) {
 		mdss_mdp_splash_unmap_splash_mem(mfd);
-		mdss_mdp_splash_cleanup(mfd, false);
 	/* wait for 2 frame done events before releasing memory */
 	} else if (sinfo->frame_done_count > MAX_FRAME_DONE_COUNT_WAIT &&
 			sinfo->splash_thread) {

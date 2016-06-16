@@ -44,13 +44,13 @@ struct xen_memory_region xen_extra_mem[XEN_EXTRA_MEM_MAX_REGIONS] __initdata;
 /* Number of pages released from the initial allocation. */
 unsigned long xen_released_pages;
 
-/* 
+/*
  * The maximum amount of extra memory compared to the base size.  The
  * main scaling factor is the size of struct page.  At extreme ratios
  * of base:extra, all the base memory can be filled with page
  * structures for the extra memory, leaving no space for anything
  * else.
- * 
+ *
  * 10x seems like a reasonable balance between scaling flexibility and
  * leaving a practically usable system.
  */
@@ -274,7 +274,7 @@ char * __init xen_memory_setup(void)
 		xen_ignore_unusable(map, memmap.nr_entries);
 
 	/* Make sure the Xen-supplied memory map is well-ordered. */
-	sanitize_e820_map(map, ARRAY_SIZE(map), &memmap.nr_entries);
+	sanitize_e820_map(map, memmap.nr_entries, &memmap.nr_entries);
 
 	max_pages = xen_get_max_pages();
 	if (max_pages > max_pfn)

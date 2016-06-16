@@ -24,12 +24,12 @@
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <asm-generic/vmlinux.lds.h>
-/* needed for the processor specific cache alignment size */	
+/* needed for the processor specific cache alignment size */
 #include <asm/cache.h>
 #include <asm/page.h>
 #include <asm/asm-offsets.h>
 #include <asm/thread_info.h>
-	
+
 /* ld script to make hppa Linux kernel */
 #ifndef CONFIG_64BIT
 OUTPUT_FORMAT("elf32-hppa-linux")
@@ -50,8 +50,10 @@ SECTIONS
 	. = KERNEL_BINARY_TEXT_START;
 
 	_text = .;		/* Text and read-only data */
-	.text ALIGN(16) : {
+	.head ALIGN(16) : {
 		HEAD_TEXT
+	} = 0
+	.text ALIGN(16) : {
 		TEXT_TEXT
 		SCHED_TEXT
 		LOCK_TEXT
@@ -65,7 +67,7 @@ SECTIONS
 		*(.fixup)
 		*(.lock.text)		/* out-of-line lock text */
 		*(.gnu.warning)
-	} = 0
+	}
 	/* End of text section */
 	_etext = .;
 
@@ -124,10 +126,10 @@ SECTIONS
 	/* Linkage tables */
 	.opd : {
 		*(.opd)
-	} PROVIDE (__gp = .); 
+	} PROVIDE (__gp = .);
 	.plt : {
 		*(.plt)
-	} 
+	}
 	.dlt : {
 		*(.dlt)
 	}
@@ -163,7 +165,7 @@ SECTIONS
 	/DISCARD/ : {
 #ifdef CONFIG_64BIT
 		/* temporary hack until binutils is fixed to not emit these
-	 	 * for static binaries
+		 * for static binaries
 		 */
 		*(.interp)
 		*(.dynsym)

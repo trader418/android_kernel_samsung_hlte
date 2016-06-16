@@ -89,7 +89,7 @@ void __devinit smp_prepare_boot_cpu(void)
 	/* PGD pointer has moved after per_cpu initialization so
 	 * update the MMU.
 	 */
-  	pgd_t **pgd;
+	pgd_t **pgd;
 	pgd = (pgd_t**)&per_cpu(current_pgd, smp_processor_id());
 
 	SUPP_BANK_SEL(1);
@@ -207,7 +207,7 @@ int setup_profiling_timer(unsigned int multiplier)
  */
 unsigned long cache_decay_ticks = 1;
 
-int __cpuinit __cpu_up(unsigned int cpu, struct task_struct *tidle)
+int __cpuinit __cpu_up(unsigned int cpu)
 {
 	smp_boot_one_cpu(cpu);
 	return cpu_online(cpu) ? 0 : -ENOSYS;
@@ -365,4 +365,3 @@ irqreturn_t crisv32_ipi_interrupt(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-

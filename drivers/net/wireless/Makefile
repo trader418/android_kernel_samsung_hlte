@@ -65,12 +65,11 @@ obj-$(CONFIG_BCM4334)	+= bcmdhd/
 obj-$(CONFIG_BCM43241)	+= bcmdhd/
 obj-$(CONFIG_BCM4335)	+= bcmdhd/
 obj-$(CONFIG_BCM4339)	+= bcmdhd/
-obj-$(CONFIG_BCM4354)	+= bcmdhd4354/
+obj-$(CONFIG_BCM4354)	+= bcmdhd/
 
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
 
-obj-$(CONFIG_LIBRA_SDIOIF)	+= libra/
 obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
 
 obj-$(CONFIG_LGUIWLAN)	+= mwlan_aarp/

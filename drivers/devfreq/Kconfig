@@ -54,15 +54,6 @@ config DEVFREQ_GOV_POWERSAVE
 	  the DEVFREQ framework returns the lowest frequency available
 	  at any time.
 
-config DEVFREQ_GOV_USERSPACE
-	tristate "Userspace"
-	help
-	  Sets the frequency at the user specified one.
-	  This governor returns the user configured frequency if there
-	  has been an input to /sys/devices/.../power/devfreq_set_freq.
-	  Otherwise, the governor does not change the frequnecy
-	  given at the initialization.
-
 config DEVFREQ_GOV_MSM_ADRENO_TZ
 	tristate "MSM Adreno Trustzone"
 	depends on MSM_KGSL && MSM_SCM
@@ -98,20 +89,6 @@ config DEVFREQ_GOV_MSM_CPUBW_HWMON
 	  Since this governor uses some of the PM counters it can conflict
 	  with existing profiling tools.  This governor is unlikely to be
 	  useful for other devices.
-
-config DEVFREQ_GOV_CONSERVATIVE
-	tristate "Conservative"
-	depends on MSM_KGSL
-	help
-	  Chooses frequency based on the recent load on the device. Works
-	  similar as conservative governor of cpufreq does and implements
-	  the useful optimizations from Adreno TZ.
-
-config SIMPLE_GPU_ALGORITHM
-	bool "Simple GPU algorithm"
-	depends on DEVFREQ_GOV_MSM_ADRENO_TZ
-	help
-	  Simple user configurable GPU controlling algorithm
 
 comment "DEVFREQ Drivers"
 

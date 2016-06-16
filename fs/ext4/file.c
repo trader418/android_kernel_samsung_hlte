@@ -72,11 +72,12 @@ static void ext4_aiodio_wait(struct inode *inode)
  * or one thread will zero the other's data, causing corruption.
  */
 static int
-ext4_unaligned_aio(struct inode *inode, struct iov_iter *iter, loff_t pos)
+ext4_unaligned_aio(struct inode *inode, const struct iovec *iov,
+		   unsigned long nr_segs, loff_t pos)
 {
 	struct super_block *sb = inode->i_sb;
 	int blockmask = sb->s_blocksize - 1;
-	size_t count = iov_iter_count(iter);
+	size_t count = iov_length(iov, nr_segs);
 	loff_t final_size = pos + count;
 
 	if (pos >= i_size_read(inode))
@@ -89,7 +90,8 @@ ext4_unaligned_aio(struct inode *inode, struct iov_iter *iter, loff_t pos)
 }
 
 static ssize_t
-ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *iter, loff_t pos)
+ext4_file_write(struct kiocb *iocb, const struct iovec *iov,
+		unsigned long nr_segs, loff_t pos)
 {
 	struct inode *inode = iocb->ki_filp->f_path.dentry->d_inode;
 	int unaligned_aio = 0;
@@ -102,21 +104,19 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *iter, loff_t pos)
 
 	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))) {
 		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
-		size_t length = iov_iter_count(iter);
+		size_t length = iov_length(iov, nr_segs);
 
 		if ((pos > sbi->s_bitmap_maxbytes ||
 		    (pos == sbi->s_bitmap_maxbytes && length > 0)))
 			return -EFBIG;
 
 		if (pos + length > sbi->s_bitmap_maxbytes) {
-			ret = iov_iter_shorten(iter,
-					       sbi->s_bitmap_maxbytes - pos);
-			if (ret)
-				return ret;
+			nr_segs = iov_shorten((struct iovec *)iov, nr_segs,
+					      sbi->s_bitmap_maxbytes - pos);
 		}
 	} else if (unlikely((iocb->ki_filp->f_flags & O_DIRECT) &&
 		   !is_sync_kiocb(iocb))) {
-		unaligned_aio = ext4_unaligned_aio(inode, iter, pos);
+		unaligned_aio = ext4_unaligned_aio(inode, iov, nr_segs, pos);
 	}
 
 	/* Unaligned direct AIO must be serialized; see comment above */
@@ -133,7 +133,7 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *iter, loff_t pos)
 		ext4_aiodio_wait(inode);
 	}
 
-	ret = generic_file_write_iter(iocb, iter, pos);
+	ret = generic_file_aio_write(iocb, iov, nr_segs, pos);
 
 	if (unaligned_aio)
 		mutex_unlock(ext4_aio_mutex(inode));
@@ -153,18 +153,6 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!mapping->a_ops->readpage)
 		return -ENOEXEC;
 	file_accessed(file);
-#ifdef CONFIG_TIMA_RKP
-	if (vma->vm_end - vma->vm_start) {
-		/* iommu optimization- needs to be turned ON from
-		* the tz side.
-		*/
-		cpu_v7_tima_iommu_opt(vma->vm_start, vma->vm_end, (unsigned long)vma->vm_mm->pgd);
-		__asm__ __volatile__ (
-		"mcr    p15, 0, r0, c8, c3, 0\n"
-		"dsb\n"
-		"isb\n");
-	}
-#endif
 	vma->vm_ops = &ext4_file_vm_ops;
 	vma->vm_flags |= VM_CAN_NONLINEAR;
 	return 0;
@@ -244,8 +232,8 @@ const struct file_operations ext4_file_operations = {
 	.llseek		= ext4_llseek,
 	.read		= do_sync_read,
 	.write		= do_sync_write,
-	.read_iter	= generic_file_read_iter,
-	.write_iter	= ext4_file_write_iter,
+	.aio_read	= generic_file_aio_read,
+	.aio_write	= ext4_file_write,
 	.unlocked_ioctl = ext4_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= ext4_compat_ioctl,

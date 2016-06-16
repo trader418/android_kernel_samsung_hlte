@@ -679,10 +679,8 @@ static int fuse_readpages_fill(void *_data, struct page *page)
 			return -ENOMEM;
 		}
 
-		lock_page(newpage);
 		err = replace_page_cache_page(oldpage, newpage, GFP_KERNEL);
 		if (err) {
-			unlock_page(newpage);
 			__free_page(newpage);
 			page_cache_release(oldpage);
 			return err;
@@ -692,6 +690,7 @@ static int fuse_readpages_fill(void *_data, struct page *page)
 		 * Decrement the count on new page to make page cache the only
 		 * owner of it
 		 */
+		lock_page(newpage);
 		put_page(newpage);
 
 		lru_cache_add_file(newpage);
@@ -885,7 +884,6 @@ static ssize_t fuse_fill_write_pages(struct fuse_req *req,
 
 		mark_page_accessed(page);
 
-		iov_iter_advance(ii, tmp);
 		if (!tmp) {
 			unlock_page(page);
 			page_cache_release(page);
@@ -897,6 +895,7 @@ static ssize_t fuse_fill_write_pages(struct fuse_req *req,
 		req->pages[req->num_pages] = page;
 		req->num_pages++;
 
+		iov_iter_advance(ii, tmp);
 		count += tmp;
 		pos += tmp;
 		offset += tmp;
@@ -1007,9 +1006,7 @@ static ssize_t fuse_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	if (err)
 		goto out;
 
-	err = file_update_time(file);
-	if (err)
-		goto out;
+	file_update_time(file);
 
 	if (file->f_flags & O_DIRECT) {
 		written = generic_file_direct_write(iocb, iov, &nr_segs,
@@ -1673,17 +1670,30 @@ static int fuse_ioctl_copy_user(struct page **pages, struct iovec *iov,
 	while (iov_iter_count(&ii)) {
 		struct page *page = pages[page_idx++];
 		size_t todo = min_t(size_t, PAGE_SIZE, iov_iter_count(&ii));
-		size_t left;
+		void *kaddr;
 
-		if (!to_user)
-			left = iov_iter_copy_from_user(page, &ii, 0, todo);
-		else
-			left = iov_iter_copy_to_user(page, &ii, 0, todo);
+		kaddr = kmap(page);
 
-		if (unlikely(left))
-			return -EFAULT;
+		while (todo) {
+			char __user *uaddr = ii.iov->iov_base + ii.iov_offset;
+			size_t iov_len = ii.iov->iov_len - ii.iov_offset;
+			size_t copy = min(todo, iov_len);
+			size_t left;
 
-		iov_iter_advance(&ii, todo);
+			if (!to_user)
+				left = copy_from_user(kaddr, uaddr, copy);
+			else
+				left = copy_to_user(uaddr, kaddr, copy);
+
+			if (unlikely(left))
+				return -EFAULT;
+
+			iov_iter_advance(&ii, copy);
+			todo -= copy;
+			kaddr += copy;
+		}
+
+		kunmap(page);
 	}
 
 	return 0;
@@ -2191,22 +2201,17 @@ static ssize_t fuse_loop_dio(struct file *filp, const struct iovec *iov,
 
 
 static ssize_t
-fuse_direct_IO(int rw, struct kiocb *iocb, struct iov_iter *iter, loff_t offset)
+fuse_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
+			loff_t offset, unsigned long nr_segs)
 {
 	ssize_t ret = 0;
 	struct file *file = NULL;
 	loff_t pos = 0;
 
-	/*
-	 * We'll eventually want to work with both iovec and bvec
-	 */
-	BUG_ON(!iov_iter_has_iovec(iter));
-
 	file = iocb->ki_filp;
 	pos = offset;
 
-	ret = fuse_loop_dio(file, iov_iter_iovec(iter), iter->nr_segs, &pos,
-			    rw);
+	ret = fuse_loop_dio(file, iov, nr_segs, &pos, rw);
 
 	return ret;
 }
